@@ -1,249 +1,135 @@
-import React, { useEffect, useState } from "react";
-import {
-  Bell,
-  User,
-  LayoutDashboard,
-  Folder,
-  Eye,
-  Settings,
-  LogOut,
-  Upload
-} from "lucide-react";
-
-const SidebarItem = ({ icon, label, active }) => (
-  <div
-    className={`flex items-center gap-4 px-5 py-3 rounded-lg cursor-pointer text-base
-    ${active ? "bg-cyan-600/20 text-white" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
-  >
-    {icon}
-    {label}
-  </div>
-);
-
-const ProjectRow = ({ project, onView, onDelete }) => (
-  <tr className="border-b border-cyan-700/20">
-    <td className="py-4">{project.name}</td>
-    <td className="py-4 text-gray-400">{project.lastSync || "N/A"}</td>
-    <td className="py-4 text-right space-x-3">
-      <button
-        onClick={() => onView(project)}
-        className="text-sm bg-white/10 px-4 py-2 rounded hover:bg-white/20"
-      >
-        View
-      </button>
-      <button
-        onClick={() => onDelete(project.id)}
-        className="text-sm bg-red-500/20 px-4 py-2 rounded hover:bg-red-500/30"
-      >
-        Delete
-      </button>
-    </td>
-  </tr>
-);
-
-const Panel = ({ title, children }) => (
-  <div className="bg-gradient-to-tr from-cyan-800/40 to-black/60 border border-cyan-700/30 rounded-xl p-6">
-    <h3 className="font-semibold text-lg mb-4">{title}</h3>
-    <div className="space-y-4">{children}</div>
-  </div>
-);
-
-const Notification = ({ text }) => (
-  <div className="text-base text-gray-300 bg-white/5 p-3 rounded">{text}</div>
-);
-
-const Activity = ({ text, time }) => (
-  <div className="text-base bg-white/5 p-3 rounded">
-    <p className="text-gray-300">{text}</p>
-    <span className="text-sm text-gray-500">{time}</span>
-  </div>
-);
+import React, { useEffect, useState, useCallback } from "react";
+import { Bell, LayoutDashboard, Folder, LogOut } from "lucide-react";
 
 const DeveloperDashboard = () => {
-  const [user, setUser] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    id: null, // Added for backend fetch
-  });
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState({ id: null, first_name: "", last_name: "", email: "" });
   const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  // Fetch user info
-  useEffect(() => {
-    const fetchUser = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setLoading(false);
-        return;
+  const fetchRepos = useCallback(async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/github/developer/repos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.map(r => ({
+          id: r.repo_id,
+          name: r.repo_name,
+          fullName: r.full_name,
+          url: r.html_url,
+        })));
       }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [API_URL]);
+
+  useEffect(() => {
+    const initDashboard = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) { window.location.href = "/login"; return; }
 
       try {
         const res = await fetch(`${API_URL}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error("Failed to fetch user data");
-        const data = await res.json();
-        setUser(data);
+        if (!res.ok) throw new Error("Auth failed");
+        const userData = await res.json();
+        setUser(userData);
+
+        // Check if pending invite token exists and automatically accept
+        const pendingToken = localStorage.getItem("pendingInviteToken");
+        if (pendingToken) {
+          await fetch(`${API_URL}/api/invite/accept/${pendingToken}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ user_id: parseInt(userData.id, 10) }),
+          });
+          localStorage.removeItem("pendingInviteToken");
+        }
+
+        await fetchRepos();
       } catch (err) {
-        localStorage.removeItem("token");
-        window.location.href = "/login";
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchUser();
-  }, [API_URL]);
+    initDashboard();
+  }, [API_URL, fetchRepos]);
 
-  // ✅ Fetch assigned repos for developer
-  useEffect(() => {
-    if (!user.id) return;
-    const token = localStorage.getItem("token");
-    fetch(`${API_URL}/api/github/developer/repos?user_id=${user.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        // Map backend repo objects to dashboard format
-        const mapped = data.map((r) => ({
-          id: r.repo_id,
-          name: r.repo_name || r.repo_id,
-          lastSync: r.last_sync || "N/A",
-        }));
-        setProjects(mapped);
-      })
-      .catch((err) => console.error("Fetch developer repos error:", err));
-  }, [user.id, API_URL]);
-
-  const handleView = (project) => {
-    console.log("Viewing project:", project);
-    alert(`Viewing project: ${project.name}`);
-  };
-
-  const handleDelete = (id) => {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen text-white text-xl">
-        Loading dashboard...
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading...</div>;
 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-black to-cyan-900 text-white">
-      {/* Sidebar */}
-      <aside className="w-72 bg-gradient-to-b from-cyan-800/40 to-black/60 border-r border-cyan-700/30 flex flex-col justify-between p-8">
+      <aside className="w-72 bg-black/40 border-r border-white/10 p-8 flex flex-col justify-between">
         <div>
-          <div className="flex items-center gap-4 mb-12">
-            <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center">
-              <User size={24} />
+          <div className="flex items-center gap-4 mb-10">
+            <div className="w-12 h-12 rounded-full bg-cyan-600 flex items-center justify-center font-bold text-xl">
+              {user.first_name?.[0]}
             </div>
             <div>
-              <p className="text-base font-semibold">
-                {user.first_name || "User"} {user.last_name || ""}
-              </p>
-              <p className="text-sm text-gray-400">{user.email || "email@example.com"}</p>
+              <p className="font-semibold">{user.first_name} {user.last_name}</p>
+              <p className="text-xs text-gray-400 truncate w-40">{user.email}</p>
             </div>
           </div>
-
-          <nav className="space-y-3">
-            <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
-            <SidebarItem icon={<Folder size={20} />} label="Local Projects" />
-            <SidebarItem icon={<Eye size={20} />} label="Visualization Tools" />
-            <SidebarItem icon={<Settings size={20} />} label="Settings" />
+          <nav className="space-y-2">
+            <div className="flex items-center gap-3 p-3 bg-cyan-600/20 rounded-lg text-cyan-400 cursor-pointer">
+              <LayoutDashboard size={20}/> Dashboard
+            </div>
+            <div className="flex items-center gap-3 p-3 text-gray-400 hover:bg-white/5 rounded-lg cursor-pointer">
+              <Folder size={20}/> Projects
+            </div>
           </nav>
         </div>
-
-        <button
-          onClick={() => {
-            localStorage.removeItem("token");
-            window.location.href = "/login";
-          }}
-          className="flex items-center gap-3 text-gray-400 hover:text-white text-base"
-        >
-          <LogOut size={20} /> Logout
+        <button onClick={() => { localStorage.clear(); window.location.href="/login"; }} className="flex items-center gap-3 text-gray-500 hover:text-red-400 p-3">
+          <LogOut size={20}/> Logout
         </button>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 p-10">
-        <div className="flex justify-between items-center mb-10">
-          <div className="flex items-center gap-4">
-            <div className="w-11 h-11 rounded bg-cyan-600 flex items-center justify-center font-bold text-lg">
-              C
-            </div>
-            <span className="font-semibold text-xl">CodeVerse</span>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <Bell size={22} className="text-gray-300 hover:text-white" />
-            <User size={22} className="text-gray-300 hover:text-white" />
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-semibold">
-              Welcome Back, {user.first_name || "Developer"}!
-            </h1>
-            <p className="text-gray-400 text-base mt-1">
-              Here's an overview of your projects and recent activities.
-            </p>
-          </div>
-
-          <button className="flex items-center gap-3 bg-cyan-600 px-6 py-3 rounded-lg text-base font-semibold hover:bg-cyan-500">
-            <Upload size={18} /> Upload Local Projects
-          </button>
-        </div>
-
-        <input
-          type="text"
-          placeholder="Search assigned projects or paste public GitHub repo URL..."
-          className="w-full rounded-md bg-gray-800 border border-gray-600 text-white px-5 py-4 mb-10 text-base placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-        />
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-gradient-to-tr from-cyan-800/40 to-black/60 border border-cyan-700/30 rounded-xl p-8">
-            <h2 className="font-semibold text-xl mb-6">Projects</h2>
-
-            <table className="w-full text-base">
-              <thead className="text-gray-400 border-b border-cyan-700/30">
-                <tr>
-                  <th className="text-left py-3">PROJECT NAME</th>
-                  <th className="text-left py-3">LAST SYNC</th>
-                  <th></th>
+      <main className="flex-1 p-10 overflow-y-auto">
+        <h1 className="text-3xl font-bold mb-4">Workspace</h1>
+        <p className="text-gray-400 mb-8">{projects.length} Active Repositories</p>
+        <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-gray-500 text-xs border-b border-white/10">
+                <th className="px-6 py-4 font-semibold">PROJECT NAME</th>
+                <th className="px-6 py-4 font-semibold">REPOSITORY PATH</th>
+                <th className="px-6 py-4 text-right font-semibold">ACTION</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {projects.map(p => (
+                <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-medium">{p.name}</td>
+                  <td className="px-6 py-4 text-gray-400 text-sm font-mono">{p.fullName}</td>
+                  <td className="px-6 py-4 text-right">
+                    <button onClick={() => window.open(p.url, "_blank")} className="px-4 py-2 bg-cyan-600/10 text-cyan-400 border border-cyan-600/20 rounded-lg text-sm hover:bg-cyan-600 hover:text-white transition-all">
+                      View
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {projects.map((project) => (
-                  <ProjectRow
-                    key={project.id}
-                    project={project}
-                    onView={handleView}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="space-y-8">
-            <Panel title="Notifications">
-              <Notification text="Repo sync completed successfully" />
-              <Notification text="New visualization generated" />
-            </Panel>
-
-            <Panel title="Recent Activity">
-              <Activity text="Analyzed Express API routes" time="15 min ago" />
-              <Activity text="Updated React visualization graph" time="3 hours ago" />
-            </Panel>
-          </div>
+              ))}
+            </tbody>
+          </table>
+          {projects.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <Folder size={48} className="text-gray-700 mb-4" />
+              <h3 className="text-lg font-semibold text-gray-400">Workspace Empty</h3>
+              <p className="text-gray-500 max-w-sm mt-2">Check your email for invitations to get started.</p>
+            </div>
+          )}
         </div>
       </main>
     </div>

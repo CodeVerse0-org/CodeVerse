@@ -11,7 +11,7 @@ import DeveloperDashboard from "./pages/DeveloperDashboard";
 import GitHubConnect from "./pages/GitHubConnect";
 import GitHubConnectCallback from "./pages/GitHubConnectCallback";
 import Repositories from "./pages/Repositories";
-import VerifyEmail from "./pages/VerifyEmail"; 
+import VerifyEmail from "./pages/VerifyEmail";
 import InviteUsers from "./pages/InviteUsers";
 import AcceptInvite from "./pages/AcceptInvite";
 
@@ -35,6 +35,9 @@ const App = () => {
       {/* Dashboards */}
       <Route path="/adminDashboard" element={<AdminDashboard />} />
       <Route path="/repositories" element={<Repositories />} />
+
+
+
       <Route path="/developerDashboard" element={<DeveloperDashboard />} />
 
       {/* Verify Email */}

@@ -1,79 +1,77 @@
 # backend/routers/invite.py
-
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+from typing import List
 from db.session import get_db
-from db.models import Invitation, UserRepository
-from utils.email_utils import send_invitation_email
+from db.models import Invitation, UserRepository, User
+from utils.email_utils import send_invitation_email  # implement this with SMTP/Mailtrap
 
-router = APIRouter(prefix="/api/invite", tags=["Invite"])
+router = APIRouter(tags=["invite"])
 
-# ------------------------------
-# SEND INVITATION
-# ------------------------------
+# --- Payloads ---
+class InviteCreate(BaseModel):
+    email: EmailStr
+    repo_ids: List[int]
+
+class AcceptPayload(BaseModel):
+    user_id: int
+
+# --- Send Invitation ---
 @router.post("/")
-def send_invite(payload: dict, db: Session = Depends(get_db)):
-    """
-    Send invitation email to developer
-    payload: {
-        "email": str,
-        "repo_ids": list[int]
-    }
-    """
-    # Check required fields
-    if "email" not in payload or "repo_ids" not in payload:
-        raise HTTPException(status_code=400, detail="Missing email or repo_ids")
-
+def send_invite(payload: InviteCreate, db: Session = Depends(get_db)):
     token = str(uuid.uuid4())
-
-    # Save invitation in DB
     invite = Invitation(
-        email=payload["email"],
+        email=payload.email.lower(),
         token=token,
-        repo_ids=payload["repo_ids"]
+        repo_ids=payload.repo_ids,
+        accepted=False
     )
-    db.add(invite)
-    db.commit()
-    db.refresh(invite)
-
-    # Build invitation link (frontend route)
-    link = f"http://localhost:5173/accept-invite/{token}"
-
-    # Send email
     try:
-        send_invitation_email(payload["email"], link)
+        db.add(invite)
+        db.commit()
+        db.refresh(invite)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database save failed")
+
+    # Send email with invite link
+    link = f"http://localhost:5173/accept-invite/{token}"
+    try:
+        send_invitation_email(payload.email, link)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+        print(f"Email sending failed: {e}")
+        # Optionally continue; invite still created
 
-    return {"message": f"Invitation sent to {payload['email']}", "token": token}
+    return {"message": "Invitation sent", "link": link, "token": token}
 
-
-# ------------------------------
-# ACCEPT INVITATION
-# ------------------------------
+# --- Accept Invitation ---
 @router.post("/accept/{token}")
-def accept_invite(token: str, user_id: int, db: Session = Depends(get_db)):
-    """
-    Developer accepts invitation
-    Path param: token
-    Query/body param: user_id (int)
-    """
-    # Fetch invitation
-    invite = db.query(Invitation).filter_by(token=token).first()
+def accept_invite(token: str, payload: AcceptPayload, db: Session = Depends(get_db)):
+    invite = db.query(Invitation).filter(Invitation.token == token).first()
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found")
     if invite.accepted:
-        raise HTTPException(status_code=400, detail="Invitation already accepted")
+        return {"message": "Already accepted"}
 
-    # Mark invitation as accepted
-    invite.accepted = True
+    # Validate user exists
+    user = db.query(User).filter(User.id == payload.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # Assign repos to user
-    for repo_id in invite.repo_ids:
-        user_repo = UserRepository(user_id=user_id, repo_id=repo_id)
-        db.add(user_repo)
+    try:
+        # Link repositories
+        for rid in invite.repo_ids:
+            exists = db.query(UserRepository).filter_by(user_id=user.id, repo_id=rid).first()
+            if not exists:
+                db.add(UserRepository(user_id=user.id, repo_id=rid))
 
-    db.commit()
+        # Mark invite accepted
+        invite.accepted = True
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to accept invite: {e}")
 
-    return {"message": "Invitation accepted successfully", "user_id": user_id}
+    return {"message": "Invite accepted and repositories linked"}
