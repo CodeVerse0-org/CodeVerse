@@ -45,51 +45,58 @@ const AdminSignup = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (submitting) return;
+  e.preventDefault();
+  if (submitting) return;
 
-    setServerError("");
-    const newErrors = {};
+  setServerError("");
+  const newErrors = {};
 
-    if (!email) newErrors.email = "Email is required";
-    if (!firstName) newErrors.firstName = "First name is required";
-    if (!lastName) newErrors.lastName = "Last name is required";
-    if (!password) newErrors.password = "Password is required";
-    if (!confirmPassword) newErrors.confirmPassword = "Confirm password is required";
-    if (password !== confirmPassword) newErrors.confirmPassword = "Passwords do not match";
-    if (strength < 4) newErrors.passwordStrength = "Password must be strong";
-    if (!agreeTerms) newErrors.agreeTerms = "You must agree to the terms";
+  if (!email) newErrors.email = "Email required";
+  if (!firstName) newErrors.firstName = "First name required";
+  if (!lastName) newErrors.lastName = "Last name required";
+  if (!password) newErrors.password = "Password required";
+  if (password !== confirmPassword)
+    newErrors.confirmPassword = "Passwords do not match";
+  if (strength < 4)
+    newErrors.passwordStrength = "Strong password required";
+  if (!agreeTerms)
+    newErrors.agreeTerms = "Accept terms";
 
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) return;
+  setErrors(newErrors);
+  if (Object.keys(newErrors).length) return;
 
-    setSubmitting(true);
+  setSubmitting(true);
 
-    try {
-      const res = await fetch(`${API_URL}/auth/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          password,
-          role: "admin",
-        }),
-      });
+  try {
+    const res = await fetch(`${API_URL}/auth/signup-initiate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: email.toLowerCase(),
+        first_name: firstName,
+        last_name: lastName,
+        password,
+        role: "admin",
+      }),
+    });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Signup failed");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
 
-      // Navigate to MFA setup with user_id
-      navigate("/mfa-setup", { state: { user_id: data.user_id } });
+    navigate("/verify-email", {
+      state: {
+        email: email.toLowerCase(),
+        user_id: data.user_id,
+      },
+    });
 
-    } catch (err) {
-      setServerError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  } catch (err) {
+    setServerError(err.message);
+  } finally {
+    setSubmitting(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black to-cyan-900 px-4">

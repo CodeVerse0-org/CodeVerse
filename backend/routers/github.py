@@ -1,3 +1,5 @@
+# backend/routers/github.py
+
 import time
 import jwt
 import requests
@@ -6,13 +8,23 @@ from fastapi.security import OAuth2PasswordBearer
 from utils.security import decode_access_token
 from db.connection import get_db
 import psycopg2
-from config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_APP_SLUG
+from config import settings
+from db.models import UserRepository
+from sqlalchemy.orm import Session
+from db.session import get_db as get_sqlalchemy_db
+
+GITHUB_APP_ID = settings.GITHUB_APP_ID
+GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY
+GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
 
 router = APIRouter(tags=["GitHub"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# Helper to get user_id from token
+# ------------------------------
+# Helpers
+# ------------------------------
 def get_current_user_id(token: str = Depends(oauth2_scheme)):
+    """Extract user_id from JWT token"""
     payload = decode_access_token(token)
     user_id = payload.get("sub")
     if not user_id:
@@ -23,7 +35,7 @@ def get_current_user_id(token: str = Depends(oauth2_scheme)):
 def get_github_jwt():
     """Generates a JWT to authenticate as the GitHub App."""
     if not GITHUB_PRIVATE_KEY:
-        raise HTTPException(status_code=500, detail="GitHub Private Key is missing in server config")
+        raise HTTPException(status_code=500, detail="GitHub Private Key is missing")
     
     now = int(time.time())
     payload = {
@@ -46,8 +58,9 @@ def get_installation_access_token(installation_id: int):
         return None
     return response.json().get("token")
 
-# --- Endpoints ---
-
+# ------------------------------
+# Endpoints
+# ------------------------------
 @router.get("/install-url")
 def install_url(admin_user_id: int = Depends(get_current_user_id)):
     url = f"https://github.com/apps/{GITHUB_APP_SLUG}/installations/new"
@@ -95,6 +108,7 @@ def github_status(admin_user_id: int = Depends(get_current_user_id)):
 
 @router.get("/repositories")
 def get_repositories(admin_user_id: int = Depends(get_current_user_id)):
+    """Fetch repositories accessible via GitHub App installation"""
     conn = get_db()
     cur = conn.cursor()
     
@@ -111,10 +125,20 @@ def get_repositories(admin_user_id: int = Depends(get_current_user_id)):
         raise HTTPException(status_code=500, detail="Failed to fetch GitHub access token")
 
     headers = {"Authorization": f"token {token}"}
-    # Note: Correct GitHub endpoint for installation repos
     resp = requests.get("https://api.github.com/installation/repositories", headers=headers)
     
     if resp.status_code != 200:
         return {"repositories": []}
 
     return {"repositories": resp.json().get("repositories", [])}
+
+# ------------------------------
+# Developer Assigned Repos
+# ------------------------------
+@router.get("/developer/repos")
+def get_developer_repos(user_id: int, db: Session = Depends(get_sqlalchemy_db)):
+    """
+    Fetch repos assigned to a developer via invite
+    """
+    repos = db.query(UserRepository).filter_by(user_id=user_id).all()
+    return [{"repo_id": r.repo_id} for r in repos]

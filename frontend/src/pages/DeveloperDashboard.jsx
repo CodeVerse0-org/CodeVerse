@@ -13,11 +13,7 @@ import {
 const SidebarItem = ({ icon, label, active }) => (
   <div
     className={`flex items-center gap-4 px-5 py-3 rounded-lg cursor-pointer text-base
-    ${
-      active
-        ? "bg-cyan-600/20 text-white"
-        : "text-gray-400 hover:bg-white/5 hover:text-white"
-    }`}
+    ${active ? "bg-cyan-600/20 text-white" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
   >
     {icon}
     {label}
@@ -27,7 +23,7 @@ const SidebarItem = ({ icon, label, active }) => (
 const ProjectRow = ({ project, onView, onDelete }) => (
   <tr className="border-b border-cyan-700/20">
     <td className="py-4">{project.name}</td>
-    <td className="py-4 text-gray-400">{project.lastSync}</td>
+    <td className="py-4 text-gray-400">{project.lastSync || "N/A"}</td>
     <td className="py-4 text-right space-x-3">
       <button
         onClick={() => onView(project)}
@@ -53,9 +49,7 @@ const Panel = ({ title, children }) => (
 );
 
 const Notification = ({ text }) => (
-  <div className="text-base text-gray-300 bg-white/5 p-3 rounded">
-    {text}
-  </div>
+  <div className="text-base text-gray-300 bg-white/5 p-3 rounded">{text}</div>
 );
 
 const Activity = ({ text, time }) => (
@@ -69,30 +63,15 @@ const DeveloperDashboard = () => {
   const [user, setUser] = useState({
     first_name: "",
     last_name: "",
-    email: ""
+    email: "",
+    id: null, // Added for backend fetch
   });
   const [loading, setLoading] = useState(true);
-
-  const [projects, setProjects] = useState([
-    {
-      id: 1,
-      name: "codeverse/frontend-app",
-      lastSync: "2023-10-27 10:45 AM"
-    },
-    {
-      id: 2,
-      name: "Blog-Platform/full-project",
-      lastSync: "2023-10-27 3:45 PM"
-    },
-    {
-      id: 3,
-      name: "AI-Visualizer/backend-api",
-      lastSync: "2023-10-28 12:10 PM"
-    }
-  ]);
+  const [projects, setProjects] = useState([]);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+  // Fetch user info
   useEffect(() => {
     const fetchUser = async () => {
       const token = localStorage.getItem("token");
@@ -103,7 +82,7 @@ const DeveloperDashboard = () => {
 
       try {
         const res = await fetch(`${API_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error("Failed to fetch user data");
         const data = await res.json();
@@ -118,6 +97,26 @@ const DeveloperDashboard = () => {
 
     fetchUser();
   }, [API_URL]);
+
+  // ✅ Fetch assigned repos for developer
+  useEffect(() => {
+    if (!user.id) return;
+    const token = localStorage.getItem("token");
+    fetch(`${API_URL}/api/github/developer/repos?user_id=${user.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        // Map backend repo objects to dashboard format
+        const mapped = data.map((r) => ({
+          id: r.repo_id,
+          name: r.repo_name || r.repo_id,
+          lastSync: r.last_sync || "N/A",
+        }));
+        setProjects(mapped);
+      })
+      .catch((err) => console.error("Fetch developer repos error:", err));
+  }, [user.id, API_URL]);
 
   const handleView = (project) => {
     console.log("Viewing project:", project);
@@ -149,23 +148,14 @@ const DeveloperDashboard = () => {
               <p className="text-base font-semibold">
                 {user.first_name || "User"} {user.last_name || ""}
               </p>
-              <p className="text-sm text-gray-400">
-                {user.email || "email@example.com"}
-              </p>
+              <p className="text-sm text-gray-400">{user.email || "email@example.com"}</p>
             </div>
           </div>
 
           <nav className="space-y-3">
-            <SidebarItem
-              icon={<LayoutDashboard size={20} />}
-              label="Dashboard"
-              active
-            />
+            <SidebarItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
             <SidebarItem icon={<Folder size={20} />} label="Local Projects" />
-            <SidebarItem
-              icon={<Eye size={20} />}
-              label="Visualization Tools"
-            />
+            <SidebarItem icon={<Eye size={20} />} label="Visualization Tools" />
             <SidebarItem icon={<Settings size={20} />} label="Settings" />
           </nav>
         </div>
@@ -250,14 +240,8 @@ const DeveloperDashboard = () => {
             </Panel>
 
             <Panel title="Recent Activity">
-              <Activity
-                text="Analyzed Express API routes"
-                time="15 min ago"
-              />
-              <Activity
-                text="Updated React visualization graph"
-                time="3 hours ago"
-              />
+              <Activity text="Analyzed Express API routes" time="15 min ago" />
+              <Activity text="Updated React visualization graph" time="3 hours ago" />
             </Panel>
           </div>
         </div>

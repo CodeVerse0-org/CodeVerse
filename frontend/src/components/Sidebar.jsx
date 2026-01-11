@@ -42,7 +42,7 @@ const Sidebar = ({ admin, isConnected }) => {
         <nav className="space-y-2">
           <SidebarItem icon={<Home size={18} />} label="Dashboard" active={location.pathname === "/adminDashboard"} onClick={() => navigate("/adminDashboard")} />
           <SidebarItem icon={<GitBranch size={18} />} label="Repositories" active={location.pathname === "/repositories"} onClick={() => navigate("/repositories")} />
-          <SidebarItem icon={<Users size={18} />} label="Users" active={location.pathname === "/users"} onClick={() => navigate("/users")} />
+          <SidebarItem icon={<Users size={18} />} label="Users" active={location.pathname === "/users"} onClick={() => navigate("/invite-users")} />
           <SidebarItem icon={<Settings size={18} />} label="Settings" active={location.pathname === "/settings"} onClick={() => navigate("/settings")} />
         </nav>
       </div>

@@ -19,33 +19,43 @@ const Repositories = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       try {
+        // --- Improved error handling block ---
         const [statusRes, adminRes] = await Promise.all([
           fetch(`${API_URL}/api/github/status`, { headers }),
-          fetch(`${API_URL}/auth/me`, { headers })
+          fetch(`${API_URL}/auth/me`, { headers }),
         ]);
+
+        if (!statusRes.ok || !adminRes.ok) {
+          throw new Error("Unauthorized or server error");
+        }
 
         const statusData = await statusRes.json();
         const adminData = await adminRes.json();
 
         setIsConnected(statusData.connected);
-        setAdmin({ name: `${adminData.first_name} ${adminData.last_name}`, email: adminData.email });
+        setAdmin({
+          name: `${adminData.first_name} ${adminData.last_name}`,
+          email: adminData.email,
+        });
 
         if (statusData.connected) {
           const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
+          if (!repoRes.ok) throw new Error("Repo fetch failed");
+
           const repoData = await repoRes.json();
-          // GitHub API returns an array of repo objects
           setRepos(repoData.repositories || []);
         }
       } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("Fetch error:", err.message);
       } finally {
         setLoading(false);
       }
     };
+
     fetchData();
   }, [navigate, API_URL]);
 
-  const filteredRepos = repos.filter(repo => 
+  const filteredRepos = repos.filter(repo =>
     repo.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 

@@ -66,7 +66,7 @@ const DeveloperSignup = () => {
     setSubmitting(true);
 
     try {
-      const res = await fetch(`${API_URL}/auth/signup`, {
+      const res = await fetch(`${API_URL}/auth/signup-initiate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -82,7 +82,12 @@ const DeveloperSignup = () => {
       if (!res.ok) throw new Error(data.detail || "Signup failed");
 
       // Navigate to MFA setup with user_id
-      navigate("/mfa-setup", { state: { user_id: data.user_id } });
+      navigate("/verify-email", {
+      state: {
+        email: email.toLowerCase(),
+        user_id: data.user_id,
+      },
+    });
 
     } catch (err) {
       setServerError(err.message);
