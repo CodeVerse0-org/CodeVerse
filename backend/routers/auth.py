@@ -199,8 +199,9 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         conn = get_db()
         cur = conn.cursor()
 
+        # UPDATED: Added 'id' to the SELECT statement
         cur.execute("""
-            SELECT first_name, last_name, email
+            SELECT id, first_name, last_name, email
             FROM users WHERE id=%s
         """, (user_id,))
 
@@ -208,10 +209,12 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # UPDATED: Included "id" in the response dictionary
         return {
-            "first_name": user[0],
-            "last_name": user[1],
-            "email": user[2]
+            "id": user[0],
+            "first_name": user[1],
+            "last_name": user[2],
+            "email": user[3]
         }
 
     finally:

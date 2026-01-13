@@ -30,43 +30,59 @@ const DeveloperDashboard = () => {
     }
   }, [API_URL]);
 
-  useEffect(() => {
-    const initDashboard = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) { window.location.href = "/login"; return; }
+// DeveloperDashboard.jsx
 
-      try {
-        const res = await fetch(`${API_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
+useEffect(() => {
+  const initDashboard = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    try {
+      // 1. Fetch User Info first to get the ID
+      const res = await fetch(`${API_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Auth failed");
+      const userData = await res.json();
+      setUser(userData);
+
+      // 2. Handle Pending Invite ONLY IF we have a token and user ID
+      const pendingToken = localStorage.getItem("pendingInviteToken");
+      if (pendingToken && userData.id) {
+        const acceptRes = await fetch(`${API_URL}/api/invite/accept/${pendingToken}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ user_id: parseInt(userData.id, 10) }),
         });
-        if (!res.ok) throw new Error("Auth failed");
-        const userData = await res.json();
-        setUser(userData);
 
-        // Check if pending invite token exists and automatically accept
-        const pendingToken = localStorage.getItem("pendingInviteToken");
-        if (pendingToken) {
-          await fetch(`${API_URL}/api/invite/accept/${pendingToken}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ user_id: parseInt(userData.id, 10) }),
-          });
+        if (acceptRes.ok) {
+          console.log("Invite accepted successfully!");
           localStorage.removeItem("pendingInviteToken");
+          // Small delay or explicit wait to ensure DB consistency
+        } else {
+          const errorData = await acceptRes.json();
+          console.error("Invite Accept Failed:", errorData.detail);
         }
-
-        await fetchRepos();
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    initDashboard();
-  }, [API_URL, fetchRepos]);
+      // 3. Fetch Repos ONLY AFTER the invite logic is completed
+      await fetchRepos();
+      
+    } catch (err) {
+      console.error("Dashboard Init Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  initDashboard();
+}, [API_URL, fetchRepos]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading...</div>;
 

@@ -1,3 +1,5 @@
+# backend/routers/github.py
+
 import time
 import jwt
 import requests
@@ -10,9 +12,6 @@ from db.connection import get_db
 from utils.security import decode_access_token
 from config import settings
 
-# -----------------------------
-# GitHub App Config
-# -----------------------------
 GITHUB_APP_ID = settings.GITHUB_APP_ID
 GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY
 GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
@@ -20,9 +19,6 @@ GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
 router = APIRouter(tags=["GitHub"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def get_current_user_id(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     user_id = payload.get("sub")
@@ -128,17 +124,19 @@ def get_developer_repos(
     user_id: int = Depends(get_current_user_id)
 ):
     """Developer: fetch only repos assigned to this user"""
+    # 1. Get assignments from DB
     assigned = db.query(UserRepository).filter_by(user_id=user_id).all()
     if not assigned:
         return []
 
-    # Use first admin installation
+    # 2. Get the GitHub Installation token
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT installation_id FROM github_installations LIMIT 1")
     inst = cur.fetchone()
     cur.close()
     conn.close()
+    
     if not inst:
         return []
 
@@ -146,6 +144,7 @@ def get_developer_repos(
     headers = {"Authorization": f"token {token}"}
     results = []
 
+    # 3. Fetch details for each assigned repo
     for a in assigned:
         resp = requests.get(f"https://api.github.com/repositories/{a.repo_id}", headers=headers)
         if resp.status_code == 200:
@@ -156,4 +155,5 @@ def get_developer_repos(
                 "full_name": data.get("full_name"),
                 "html_url": data.get("html_url")
             })
+            
     return results

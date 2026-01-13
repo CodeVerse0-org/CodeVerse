@@ -14,6 +14,7 @@ import Repositories from "./pages/Repositories";
 import VerifyEmail from "./pages/VerifyEmail";
 import InviteUsers from "./pages/InviteUsers";
 import AcceptInvite from "./pages/AcceptInvite";
+import UserManagement from "./pages/UserManagement";
 
 const App = () => {
   return (
@@ -35,10 +36,11 @@ const App = () => {
       {/* Dashboards */}
       <Route path="/adminDashboard" element={<AdminDashboard />} />
       <Route path="/repositories" element={<Repositories />} />
-
+       <Route path="/users" element={<UserManagement />} />
 
 
       <Route path="/developerDashboard" element={<DeveloperDashboard />} />
+
 
       {/* Verify Email */}
      
