@@ -1,5 +1,8 @@
+# backend/routers/github.py
+
 import time
-import jwt
+from jose import jwt
+
 import requests
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.security import OAuth2PasswordBearer
@@ -10,9 +13,6 @@ from db.connection import get_db
 from utils.security import decode_access_token
 from config import settings
 
-# -----------------------------
-# GitHub App Config
-# -----------------------------
 GITHUB_APP_ID = settings.GITHUB_APP_ID
 GITHUB_PRIVATE_KEY = settings.GITHUB_PRIVATE_KEY
 GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
@@ -20,9 +20,6 @@ GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
 router = APIRouter(tags=["GitHub"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def get_current_user_id(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     user_id = payload.get("sub")
@@ -45,6 +42,7 @@ def get_installation_access_token(installation_id: int):
     if resp.status_code != 201:
         raise HTTPException(status_code=500, detail="Failed to get installation access token")
     return resp.json().get("token")
+
 
 # -----------------------------
 # Endpoints
@@ -127,28 +125,59 @@ def get_developer_repos(
     db: Session = Depends(get_sqlalchemy_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    """Developer: fetch only repos assigned to this user"""
+    """
+    Developer: fetch only repos assigned to this user
+    """
+    # 1. Get assigned repositories
     assigned = db.query(UserRepository).filter_by(user_id=user_id).all()
     if not assigned:
         return []
 
-    # Use first admin installation
+    # 2. Get GitHub App installation ID
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT installation_id FROM github_installations LIMIT 1")
-    inst = cur.fetchone()
-    cur.close()
-    conn.close()
-    if not inst:
+    try:
+        cur.execute("""
+            SELECT installation_id
+            FROM github_installations
+            ORDER BY id DESC
+            LIMIT 1
+        """)
+        inst = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not inst or not inst[0]:
         return []
 
-    token = get_installation_access_token(inst[0])
-    headers = {"Authorization": f"token {token}"}
+    installation_id = inst[0]
+
+    # 3. Get installation access token
+    try:
+        token = get_installation_access_token(installation_id)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to get GitHub installation token")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json"
+    }
+
     results = []
 
+    # 4. Fetch each repository safely
     for a in assigned:
-        resp = requests.get(f"https://api.github.com/repositories/{a.repo_id}", headers=headers)
-        if resp.status_code == 200:
+        try:
+            resp = requests.get(
+                f"https://api.github.com/repositories/{a.repo_id}",
+                headers=headers,
+                timeout=10
+            )
+
+            if resp.status_code != 200:
+                continue
+
             data = resp.json()
             results.append({
                 "repo_id": a.repo_id,
@@ -156,4 +185,8 @@ def get_developer_repos(
                 "full_name": data.get("full_name"),
                 "html_url": data.get("html_url")
             })
+
+        except requests.RequestException:
+            continue  # skip failed repo instead of crashing
+
     return results
