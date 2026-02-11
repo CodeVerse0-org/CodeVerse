@@ -1,15 +1,20 @@
 import jwt
 import time
-from config import GITHUB_APP_ID, GITHUB_PRIVATE_KEY_PATH
+from config import settings  # <- use settings instance
 
 def generate_app_jwt():
-    with open(GITHUB_PRIVATE_KEY_PATH, "r") as f:
-        private_key = f.read()
+    """
+    Generates GitHub App JWT for API authentication.
+    """
+    private_key = settings.GITHUB_PRIVATE_KEY
+    if not private_key:
+        raise RuntimeError("GitHub Private Key not loaded. Check your config.")
 
     payload = {
         "iat": int(time.time()) - 60,
         "exp": int(time.time()) + 600,
-        "iss": GITHUB_APP_ID
+        "iss": settings.GITHUB_APP_ID
     }
 
-    return jwt.encode(payload, private_key, algorithm="RS256")
+    token = jwt.encode(payload, private_key, algorithm="RS256")
+    return token
