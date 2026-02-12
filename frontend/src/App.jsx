@@ -10,6 +10,7 @@ import MFASetup from "./pages/MFASetup";
 import AdminDashboard from "./pages/AdminDashboard";
 import DeveloperDashboard from "./pages/DeveloperDashboard";
 import VisualizationPage from "./pages/VisualizationPage"; // New Page Import
+import RepoSelectionPage from "./pages/RepoSelectionPage";
 import GitHubConnect from "./pages/GitHubConnect";
 import GitHubConnectCallback from "./pages/GitHubConnectCallback";
 import Repositories from "./pages/Repositories";
@@ -46,6 +47,7 @@ const App = () => {
 
       {/* Developer Protected Routes */}
       <Route path="/developerDashboard" element={<DeveloperDashboard />} />
+      <Route path="/visualization/select" element={<RepoSelectionPage />} />
       <Route path="/visualization" element={<VisualizationPage />} />
 
     </Routes>

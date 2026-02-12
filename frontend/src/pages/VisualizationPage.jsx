@@ -1,331 +1,316 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { ReactFlow, MiniMap, Controls, Background, ReactFlowProvider, MarkerType } from "@xyflow/react";
+import { ReactFlow, Controls, Background, ReactFlowProvider, useReactFlow, MarkerType } from "@xyflow/react";
+import { ArrowLeft, Search, FileText } from "lucide-react";
 import "@xyflow/react/dist/style.css";
-import { LayoutDashboard, Box, Network, User, CheckCircle2, AlertTriangle, Filter, Loader2 } from "lucide-react";
-import dagre from "dagre";
 
-const VisualizationPageContent = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const [projects, setProjects] = useState([]);
-  const [loadingProjects, setLoadingProjects] = useState(true); // New state for initial load
-  const [selectedRepo, setSelectedRepo] = useState(searchParams.get("repo") || "");
-  const [showGraph, setShowGraph] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  
-  const [rawGraphData, setRawGraphData] = useState({ nodes: [], edges: [] });
-  const [displayData, setDisplayData] = useState({ nodes: [], edges: [] });
-  const [activeFilter, setActiveFilter] = useState("all"); 
-  const [installationId, setInstallationId] = useState(null);
+import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperSidebar from "../components/DeveloperSidebar";
+import BubbleNode from "../components/BubbleNode";
+import GraphLoader from "../components/GraphLoader";
+import NodeDetailPanel from "../components/NodeDetailPanel";
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const nodeTypes = { bubble: BubbleNode };
 
-  const getCategory = (path) => {
-    const p = path.toLowerCase();
-    if (p.includes("backend") || p.includes("server") || p.includes("api") || p.includes("controller") || p.includes("model")) return "backend";
-    if (p.includes("frontend") || p.includes("client") || p.includes("src") || p.includes("component") || p.includes("context")) return "frontend";
-    return "frontend"; 
-  };
-
-  const getLayoutedElements = (nodes, edges) => {
-    const g = new dagre.graphlib.Graph().setGraph({ rankdir: "LR", nodesep: 80, ranksep: 250 });
+const workerCode = `
+  importScripts('https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js');
+  self.onmessage = function(e) {
+    const { nodes, edges } = e.data;
+    const g = new dagre.graphlib.Graph().setGraph({ 
+      rankdir: "TB", 
+      nodesep: 220, 
+      ranksep: 280, 
+      marginx: 100,
+      marginy: 100
+    });
     g.setDefaultEdgeLabel(() => ({}));
-    nodes.forEach(n => g.setNode(n.id, { width: 200, height: 60 }));
+    nodes.forEach(n => g.setNode(n.id, { width: 160, height: 160 }));
     edges.forEach(e => g.setEdge(e.source, e.target));
     dagre.layout(g);
-    
-    return nodes.map(n => {
-      const nodeWithPos = g.node(n.id);
-      const isBackend = n.category === "backend";
-      return {
-        ...n,
-        position: { x: nodeWithPos.x - 100, y: nodeWithPos.y - 30 },
-        style: { 
-          background: '#0a0a0a', 
-          color: isBackend ? '#fb7185' : '#22d3ee', 
-          border: `2px solid ${isBackend ? '#fb7185' : '#22d3ee'}`, 
-          borderRadius: '8px', 
-          fontSize: '11px', 
-          width: 200, 
-          textAlign: 'center',
-          fontWeight: '600',
-          padding: '12px',
-          boxShadow: `0 0 15px ${isBackend ? 'rgba(251, 113, 133, 0.1)' : 'rgba(34, 211, 238, 0.1)'}`
-        }
-      };
+    const layoutedNodes = nodes.map(n => ({
+      ...n,
+      position: { x: g.node(n.id).x, y: g.node(n.id).y }
+    }));
+    self.postMessage({ nodes: layoutedNodes, edges });
+  };
+`;
+
+const VisualizationContent = () => {
+  const { fitView } = useReactFlow();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const repoName = searchParams.get("repo");
+  const instId = searchParams.get("inst");
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [displayData, setDisplayData] = useState({ nodes: [], edges: [] });
+  const [rawGraphData, setRawGraphData] = useState({ nodes: [], edges: [] });
+  const [isDataReady, setIsDataReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [user, setUser] = useState(null);
+
+  // SEARCH & SUGGESTIONS STATE
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchRef = useRef(null);
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const worker = useMemo(() => {
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    return new Worker(URL.createObjectURL(blob));
+  }, []);
+
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return displayData.nodes.filter(n => 
+      n.data.label.toLowerCase().includes(searchQuery.toLowerCase())
+    ).slice(0, 6);
+  }, [searchQuery, displayData.nodes]);
+
+  const jumpToNode = (node) => {
+    setSelectedNode(node);
+    setSearchQuery("");
+    setShowSuggestions(false);
+    fitView({
+      nodes: [node],
+      duration: 1000,
+      padding: 1.5,
     });
   };
 
   useEffect(() => {
-    if (rawGraphData.nodes.length === 0) return;
-
-    let filteredNodes = rawGraphData.nodes;
-    if (activeFilter !== "all") {
-      filteredNodes = rawGraphData.nodes.filter(n => n.category === activeFilter);
-    }
-
-    const nodeIds = new Set(filteredNodes.map(n => n.id));
-    const filteredEdges = rawGraphData.edges.filter(e => 
-      nodeIds.has(e.source) && nodeIds.has(e.target)
-    );
-
-    const layouted = getLayoutedElements(filteredNodes, filteredEdges);
-    setDisplayData({ nodes: layouted, edges: filteredEdges });
-  }, [activeFilter, rawGraphData]);
+    const handleClickOutside = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
-    let interval;
-    if (isGenerating) {
-      interval = setInterval(() => {
-        setProgress(prev => (prev < 94 ? prev + 1 : prev));
-      }, 200);
-    } else {
-      setProgress(0);
+    if (isDataReady) {
+      const timer = setTimeout(() => setIsSidebarOpen(false), 800);
+      return () => clearTimeout(timer);
     }
-    return () => clearInterval(interval);
-  }, [isGenerating]);
+  }, [isDataReady]);
 
-  const fetchRepos = useCallback(async () => {
-    setLoadingProjects(true); // Start loading
+  const fetchGraph = useCallback(async () => {
+    if (!repoName || !instId) return;
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`${API_URL}/api/github/developer/repos`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setProjects(data);
-        const found = data.find(r => r.installation_id);
-        if (found) setInstallationId(found.installation_id);
-      }
-    } catch (err) { 
-      console.error("Fetch error:", err); 
-    } finally {
-      setLoadingProjects(false); // Stop loading regardless of success/fail
-    }
-  }, [API_URL]);
-
-  useEffect(() => { fetchRepos(); }, [fetchRepos]);
-
-  const generateGraph = async () => {
-    if (!selectedRepo || !installationId) return;
-    setIsGenerating(true);
-    const token = localStorage.getItem("token");
-
-    try {
-      const res = await fetch(`${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(selectedRepo)}&installation_id=${installationId}`, {
+      const userRes = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+      if (userRes.ok) setUser(await userRes.json());
+      const res = await fetch(`${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      if (!res.ok) throw new Error("Server Error");
       const data = await res.json();
-
       const nodes = (data.nodes || []).map(n => ({
-        id: n.id,
-        category: getCategory(n.id),
-        data: { label: n.data.label },
+        id: n.id, type: 'bubble',
+        data: { 
+          label: n.data.label.split('/').pop(),
+          fullName: n.data.label,
+          category: n.id.toLowerCase().includes('backend') ? 'backend' : 'frontend',
+          imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full.split('/').pop()),
+          imports_full: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full),
+          codeSnippet: n.data.content || "// No source preview available"
+        }
       }));
-
       const edges = (data.dependencies || []).map((dep, idx) => {
-        const isBackend = dep.source.toLowerCase().includes("backend") || dep.source.toLowerCase().includes("server");
-        const color = isBackend ? '#fb7185' : '#22d3ee';
+        const color = dep.source.toLowerCase().includes("backend") ? '#fb7185' : '#22d3ee';
         return {
-          id: `e-${idx}`,
-          source: dep.source,
-          target: dep.target_full,
-          animated: true,
-          label: "imports",
-          labelStyle: { fill: '#444', fontSize: 9, fontWeight: 700 },
-          style: { stroke: color, strokeWidth: 2, opacity: 0.6 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: color, width: 20, height: 20 }
+          id: `e-${idx}`, source: dep.source, target: dep.target_full, label: "IMPORTS", animated: true,
+          labelStyle: { fill: color, fontWeight: 900, fontSize: 7, textTransform: 'uppercase', letterSpacing: '1.5px' },
+          labelBgPadding: [6, 4], labelBgBorderRadius: 2,
+          labelBgStyle: { fill: '#000', fillOpacity: 1, stroke: color, strokeWidth: 1 },
+          style: { stroke: color, strokeWidth: 2, opacity: 0.8 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: color, width: 15, height: 15 }
         };
       });
-
       setRawGraphData({ nodes, edges });
-      setActiveFilter("all");
-      setProgress(100);
-      
+    } catch (err) { setLoading(false); }
+  }, [repoName, instId, API_URL]);
+
+  useEffect(() => { fetchGraph(); }, [fetchGraph]);
+
+  useEffect(() => {
+    if (!rawGraphData.nodes.length) return;
+    setLoading(true); setIsDataReady(false);
+    const filteredNodes = activeFilter === "all" ? rawGraphData.nodes : rawGraphData.nodes.filter(n => n.data.category === activeFilter);
+    const nodeIds = new Set(filteredNodes.map(n => n.id));
+    const filteredEdges = rawGraphData.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+    worker.postMessage({ nodes: filteredNodes, edges: filteredEdges });
+    worker.onmessage = (e) => {
+      setDisplayData(e.data);
       setTimeout(() => {
-        setShowGraph(true);
-        setIsGenerating(false);
-      }, 500);
-    } catch (err) {
-      alert(`Analysis failed: ${err.message}`);
-      setIsGenerating(false);
-    }
-  };
+        setIsDataReady(true); setLoading(false);
+        setTimeout(() => fitView({ padding: 0.3, duration: 800 }), 100);
+      }, 300);
+    };
+  }, [activeFilter, rawGraphData, worker, fitView]);
 
   return (
-    <div className="min-h-screen flex bg-[#030708] text-gray-300 font-sans">
+    <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
       <style>{`
-        .react-flow__controls {
-          background: rgba(255, 255, 255, 0.9) !important;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          border-radius: 4px;
-          overflow: hidden;
+        /* 1. SCROLLBARS */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #22d3ee; box-shadow: 0 0 10px #22d3ee; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.3); }
+
+        /* 2. SHARP BUBBLE TEXT */
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
         }
-        .react-flow__controls-button {
-          background: transparent !important;
-          border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+        .bubble-node-container { 
+          width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; 
+          animation: float 6s ease-in-out infinite; will-change: transform;
         }
-        .react-flow__controls-button svg {
-          fill: #000 !important;
+        .bouncy-sphere { 
+          width: 135px; height: 135px; border: 3px solid; border-radius: 50%; 
+          display: flex; flex-direction: column; align-items: center; justify-content: center; 
+          background: rgba(0, 0, 0, 0.7); box-shadow: inset 0 0 20px rgba(0,0,0,0.6);
         }
-        .react-flow__minimap {
-          background-color: #0a0a0a !important;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
+        .bubble-content { 
+          display: flex; flex-direction: column; align-items: center; justify-content: center; 
+          text-align: center; padding: 12px; z-index: 20;
+          text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
         }
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
+        .category-tag { 
+          font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; 
+          margin-bottom: 4px; text-shadow: 0 0 8px rgba(0,0,0,1);
         }
-        .skeleton {
-          background: linear-gradient(90deg, #0a0a0a 25%, #1a1a1a 50%, #0a0a0a 75%);
-          background-size: 200% 100%;
-          animation: shimmer 1.5s infinite;
+        .file-name { 
+          font-size: 13px; font-weight: 800; color: #ffffff; line-height: 1.1; 
+          text-shadow: 2px 2px 2px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,0.8);
         }
+
+        /* 3. WIDE CENTERED SEARCH */
+        .search-wrapper { position: relative; width: 450px; z-index: 1001; }
+        .search-container {
+          display: flex; align-items: center; background: rgba(0,0,0,0.85); 
+          border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
+          padding: 8px 18px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          backdrop-filter: blur(12px);
+        }
+        .search-container:focus-within {
+          border-color: #22d3ee; box-shadow: 0 0 25px rgba(34, 211, 238, 0.2);
+          width: 480px; transform: translateX(-15px);
+        }
+        .search-input {
+          background: transparent; border: none; outline: none; color: white;
+          font-size: 12px; padding: 4px 12px; width: 100%; font-weight: 600; letter-spacing: 0.03em;
+        }
+        
+        .suggestions-box {
+          position: absolute; top: calc(100% + 10px); left: 0; right: 0;
+          background: #080808; border: 1px solid rgba(34, 211, 238, 0.3);
+          border-radius: 14px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+        }
+        .suggestion-item {
+          padding: 12px 18px; display: flex; align-items: center; gap: 12px;
+          cursor: pointer; transition: 0.2s; border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .suggestion-item:hover { background: rgba(34, 211, 238, 0.15); }
+        .suggestion-label { font-size: 12px; font-weight: 600; color: #fff; }
+        .suggestion-cat { font-size: 8px; font-weight: 900; text-transform: uppercase; color: #666; margin-left: auto; }
+
+        .back-btn { position: absolute; top: 1.25rem; left: 1.25rem; z-index: 1000; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; background: #000; border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; color: white; font-size: 10px; font-weight: 800; cursor: pointer; transition: 0.3s; }
+        .back-btn:hover { border-color: #22d3ee; color: #22d3ee; transform: translateX(4px); }
       `}</style>
 
-      <aside className="w-64 bg-black border-r border-white/5 flex flex-col p-6">
-        <div className="flex items-center gap-3 mb-10">
-          <User className="text-gray-400" />
-          <p className="font-bold text-sm text-white">Developer</p>
-        </div>
-        <nav className="space-y-1">
-          <NavItem icon={<LayoutDashboard size={18} />} label="Dashboard" onClick={() => navigate("/developerDashboard")} />
-          <NavItem icon={<Network size={18} />} label="Visualization" active />
-        </nav>
-      </aside>
+      <DeveloperNavbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+      
+      <div className="flex-1 flex overflow-hidden">
+        <DeveloperSidebar user={user} isOpen={isSidebarOpen} />
+        
+        <div className="flex-1 flex flex-col relative overflow-hidden">
+          <button className="back-btn" onClick={() => navigate(-1)}>
+            <ArrowLeft size={14} /> Back
+          </button>
 
-      <div className="flex-1 flex flex-col">
-        <header className="h-14 border-b border-white/5 flex items-center px-6 bg-black justify-between">
-          <div className="flex items-center">
-            <Box size={16} className="text-cyan-500 mr-2" />
-            <span className="font-bold text-white tracking-tighter uppercase">CodeVerse</span>
-          </div>
-          
-          {showGraph && (
-            <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-1">
-              <FilterButton active={activeFilter === "all"} onClick={() => setActiveFilter("all")} label="All" />
-              <FilterButton active={activeFilter === "frontend"} onClick={() => setActiveFilter("frontend")} label="Frontend" />
-              <FilterButton active={activeFilter === "backend"} onClick={() => setActiveFilter("backend")} label="Backend" />
-            </div>
-          )}
-        </header>
+          <header className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl z-20">
+            <div className="flex-1"></div>
 
-        <main className="flex-1 p-8 flex flex-col overflow-hidden relative">
-          {!showGraph ? (
-            <div className="flex-1 flex gap-8">
-              <div className="w-1/3 border border-white/5 rounded-xl bg-black/40 overflow-y-auto custom-scrollbar">
-                {loadingProjects ? (
-                  /* SKELETON LOADER */
-                  <div className="p-4 space-y-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Loader2 size={14} className="animate-spin text-cyan-500" />
-                      <span className="text-[10px] uppercase tracking-widest text-gray-500">Fetching Repositories</span>
-                    </div>
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
-                      <div key={i} className="h-12 w-full skeleton rounded-md border border-white/5"></div>
+            {!loading && (
+              <div className="search-wrapper" ref={searchRef}>
+                <div className="search-container">
+                  <Search size={16} className="text-cyan-400" />
+                  <input 
+                    type="text" 
+                    placeholder="SEARCH MODULES OR FILES..." 
+                    className="search-input"
+                    value={searchQuery}
+                    onFocus={() => setShowSuggestions(true)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                  />
+                </div>
+
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="suggestions-box">
+                    {suggestions.map(node => (
+                      <div key={node.id} className="suggestion-item" onClick={() => jumpToNode(node)}>
+                        <FileText size={14} className="text-cyan-500" />
+                        <span className="suggestion-label">{node.data.label}</span>
+                        <span className="suggestion-cat">{node.data.category}</span>
+                      </div>
                     ))}
                   </div>
-                ) : (
-                  projects.map(repo => (
-                    <div 
-                      key={repo.full_name} 
-                      onClick={() => setSelectedRepo(repo.full_name)} 
-                      className={`p-4 border-b border-white/5 flex justify-between cursor-pointer transition-all ${selectedRepo === repo.full_name ? 'bg-cyan-900/20 text-cyan-400 border-l-2 border-l-cyan-500' : 'hover:bg-white/5'}`}
-                    >
-                      <span className="text-xs font-mono">{repo.full_name}</span>
-                      {selectedRepo === repo.full_name && <CheckCircle2 size={14} />}
-                    </div>
-                  ))
                 )}
               </div>
+            )}
 
-              <div className="flex-1 flex flex-col items-center justify-center border border-white/5 rounded-xl bg-black/40 p-10">
-                {isGenerating ? (
-                  <div className="w-64 text-center">
-                    <h2 className="text-lg font-bold text-white mb-4 animate-pulse">Scanning Codebase...</h2>
-                    <div className="w-full h-1.5 bg-gray-900 rounded-full overflow-hidden">
-                      <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-cyan-500/20 blur-3xl rounded-full"></div>
-                      <Network size={64} className={`relative ${selectedRepo ? 'text-cyan-500 animate-pulse' : 'text-gray-800'}`} />
-                    </div>
+            <div className="flex-1 flex justify-end">
+              {!loading && (
+                <div className="bg-black/80 border border-white/10 p-1 rounded-xl flex gap-1">
+                  {["all", "frontend", "backend"].map(f => (
                     <button 
-                      onClick={generateGraph} 
-                      disabled={!selectedRepo || !installationId || loadingProjects} 
-                      className="mt-8 bg-cyan-600 px-12 py-3 rounded text-white text-xs font-black uppercase tracking-widest disabled:opacity-20 hover:bg-cyan-500 transition-all active:scale-95 shadow-lg shadow-cyan-900/20"
+                      key={f} 
+                      onClick={() => setActiveFilter(f)} 
+                      className={`px-5 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${
+                        activeFilter === f ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(34,211,238,0.4)]' : 'text-gray-500 hover:text-white'
+                      }`}
                     >
-                      Generate Graph
+                      {f}
                     </button>
-                    {!selectedRepo && !loadingProjects && (
-                      <p className="text-[10px] text-gray-500 mt-4 uppercase tracking-tighter">Please select a repository from the left</p>
-                    )}
-                  </>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex-1 border border-white/10 rounded-xl bg-[#030303] relative overflow-hidden shadow-2xl">
-              <ReactFlow 
-                nodes={displayData.nodes} 
-                edges={displayData.edges} 
-                fitView
-                minZoom={0.1}
-                maxZoom={1.5}
-              >
-                <Background color="#1a1a1a" gap={30} size={1} />
-                <MiniMap 
-                  maskColor="rgba(0, 0, 0, 0.7)"
-                  nodeColor={(n) => (n.category === 'backend' ? '#fb7185' : '#22d3ee')}
-                  nodeStrokeWidth={3}
-                  nodeBorderRadius={2}
-                />
-                <Controls position="bottom-left" showInteractive={false} />
-              </ReactFlow>
+          </header>
 
-              <button 
-                onClick={() => setShowGraph(false)} 
-                className="absolute top-4 right-4 z-50 bg-black border border-white/10 px-4 py-2 text-[10px] font-bold uppercase rounded text-gray-400 hover:text-white hover:border-white transition-all active:scale-95"
+          <main className="flex-1 relative bg-[#010203]">
+            {(loading || !isDataReady) && <GraphLoader />}
+            <div className={`w-full h-full transition-opacity duration-1000 ${isDataReady ? 'opacity-100' : 'opacity-0'}`}>
+              <ReactFlow 
+                nodes={displayData.nodes} edges={displayData.edges} nodeTypes={nodeTypes}
+                onNodeMouseEnter={(_, n) => setHoveredNode(n)} onNodeMouseLeave={() => setHoveredNode(null)}
+                onNodeClick={(_, n) => setSelectedNode(n)} onPaneClick={() => setSelectedNode(null)}
               >
-                Back to Selection
-              </button>
+                <Background color="#111" variant="dots" />
+                <Controls position="bottom-left" style={{ filter: 'invert(1)' }} />
+              </ReactFlow>
+              <NodeDetailPanel activeNode={selectedNode || hoveredNode} selectedNode={selectedNode} setSelectedNode={setSelectedNode} />
             </div>
-          )}
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
 };
 
-const FilterButton = ({ active, onClick, label }) => (
-  <button 
-    onClick={onClick}
-    className={`px-6 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${active ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-  >
-    {label}
-  </button>
-);
-
-const NavItem = ({ icon, label, active, onClick }) => (
-  <div onClick={onClick} className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${active ? 'bg-cyan-950/30 text-cyan-400' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-    {icon} <span className="text-[13px] font-medium">{label}</span>
-  </div>
-);
-
-const VisualizationPage = () => (
+export default () => (
   <ReactFlowProvider>
-    <VisualizationPageContent />
+    <VisualizationContent />
   </ReactFlowProvider>
 );
-
-export default VisualizationPage;

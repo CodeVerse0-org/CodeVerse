@@ -29,37 +29,46 @@ async def generate_graph(
             raise HTTPException(status_code=resp.status_code, detail="Failed to fetch repo tree")
 
         items = resp.json().get("tree", [])
-        nodes = []
+        
+        # We need a list of all files first to resolve dependencies correctly
         file_paths = []
-
         for item in items:
             path = item.get("path", "")
             if any(d in path.split("/") for d in IGNORE_DIRS): continue
             if any(path.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
-                nodes.append({"id": path, "data": {"label": path.split("/")[-1]}})
                 file_paths.append(path)
 
-        # 2. Deep Scan: Fetch content and find dependencies
+        nodes = []
         edges = []
+
+        # 2. Deep Scan: Fetch content, store it for frontend, and find dependencies
         for path in file_paths:
             content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
             c_resp = await client.get(content_url, headers=headers)
             
             if c_resp.status_code == 200:
                 content_data = c_resp.json()
-                # GitHub sends content as base64
+                # Decode the original code
                 raw_code = base64.b64decode(content_data["content"]).decode("utf-8")
                 
-                # Extract raw import strings (e.g., "./dbConnect")
+                # --- CRITICAL UPDATE: Add content to the node data ---
+                nodes.append({
+                    "id": path, 
+                    "data": {
+                        "label": path.split("/")[-1],
+                        "content": raw_code  # This allows React to show the preview
+                    }
+                })
+                
+                # Extract raw import strings
                 found_deps = extract_dependencies(raw_code)
                 
                 for dep in found_deps:
-                    # Logic to resolve relative path to full repo path
                     resolved_path = resolve_github_path(path, dep, file_paths)
                     if resolved_path:
                         edges.append({
                             "source": path,
-                            "target_full": resolved_path # Matches your React target_full key
+                            "target_full": resolved_path 
                         })
 
         return {"nodes": nodes, "dependencies": edges}
@@ -68,14 +77,28 @@ def resolve_github_path(current_file, import_string, all_files):
     """
     Attempts to match an import string to an actual file in the repo.
     """
+    # Clean import string (remove quotes if any)
+    import_string = import_string.strip("'\"")
+    
     if import_string.startswith("."):
         # Create an absolute-style path based on the current file directory
         base_dir = os.path.dirname(current_file)
         joined = os.path.normpath(os.path.join(base_dir, import_string)).replace("\\", "/")
         
-        # Check for direct match or match with extensions
+        # 1. Check direct match (e.g., import './utils.js')
+        if joined in all_files:
+            return joined
+            
+        # 2. Check match with extensions (e.g., import './utils' -> './utils.js')
         for ext in SUPPORTED_EXTENSIONS:
-            potential = joined if joined.endswith(ext) else f"{joined}{ext}"
+            potential = f"{joined}{ext}"
             if potential in all_files:
                 return potential
+                
+        # 3. Check for index files (e.g., import './components' -> './components/index.js')
+        for ext in SUPPORTED_EXTENSIONS:
+            potential_index = f"{joined}/index{ext}"
+            if potential_index in all_files:
+                return potential_index
+                
     return None
