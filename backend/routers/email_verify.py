@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from db.connection import get_db
 from datetime import datetime
+from utils.security import create_access_token
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ def verify_email(payload: dict):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, email_otp, email_otp_expires
+        SELECT id, email_otp, email_otp_expires, role, mfa_enabled
         FROM users WHERE email=%s
     """, (email.lower(),))
 
@@ -24,7 +25,7 @@ def verify_email(payload: dict):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user_id, saved_otp, expires = user
+    user_id, saved_otp, expires, role, mfa_enabled = user
 
     if saved_otp != otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
@@ -32,6 +33,7 @@ def verify_email(payload: dict):
     if datetime.utcnow() > expires:
         raise HTTPException(status_code=400, detail="OTP expired")
 
+    # Mark email verified
     cur.execute("""
         UPDATE users
         SET is_email_verified=TRUE,
@@ -39,12 +41,20 @@ def verify_email(payload: dict):
             email_otp_expires=NULL
         WHERE id=%s
     """, (user_id,))
-
     conn.commit()
+
     cur.close()
     conn.close()
 
+    # Create JWT
+    access_token = create_access_token({
+        "sub": str(user_id),
+        "role": role
+    })
+
     return {
-        "message": "Email verified",
+        "access_token": access_token,
+        "role": role,
+        "mfa_enabled": mfa_enabled,
         "user_id": user_id
     }

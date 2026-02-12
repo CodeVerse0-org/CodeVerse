@@ -70,9 +70,6 @@ def signup_initiate(data: SignupRequest):
         if conn: conn.close()
 
 
-# =====================================================
-# LOGIN (BLOCKED UNTIL EMAIL VERIFIED)
-# =====================================================
 @router.post("/login")
 def login(data: LoginRequest):
     conn = None
@@ -82,9 +79,9 @@ def login(data: LoginRequest):
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT id, password_hash, role, is_email_verified,
-                   mfa_enabled, mfa_secret
-            FROM users
+            SELECT id, password_hash, role, is_email_verified, 
+                   mfa_enabled, mfa_secret 
+            FROM users 
             WHERE email=%s AND role=%s
         """, (data.email.lower(), data.role.lower()))
 
@@ -99,31 +96,24 @@ def login(data: LoginRequest):
 
         if not email_verified:
             raise HTTPException(
-                status_code=403,
+                status_code=403, 
                 detail="Please verify your email before login"
             )
 
-        # =============================
-        # MFA REQUIRED FOR DEVELOPERS
-        # =============================
-        if role.lower() == "developer":
-            if not mfa_enabled or not mfa_secret:
-                mfa_secret = pyotp.random_base32()
-                cur.execute("""
-                    UPDATE users
-                    SET mfa_secret=%s, mfa_enabled=TRUE
-                    WHERE id=%s
-                """, (mfa_secret, user_id))
-                conn.commit()
-
+        # =======================================================
+        # MFA FLOW (FOR BOTH ADMIN & DEVELOPER)
+        # =======================================================
+        # Check if the user has completed MFA setup in Settings
+        if mfa_enabled and mfa_secret:
             return {
                 "mfa_required": True,
-                "user_id": user_id
+                "user_id": user_id,
+                "role": role  # Optional: helps frontend routing later
             }
 
-        # =============================
-        # ADMIN LOGIN (NO MFA)
-        # =============================
+        # =======================================================
+        # STANDARD LOGIN (IF MFA IS DISABLED)
+        # =======================================================
         access_token = create_access_token({
             "sub": str(user_id),
             "role": role

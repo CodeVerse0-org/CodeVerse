@@ -21,7 +21,8 @@ const HeroSection = () => (
         interactive insights that make complex projects clear within minutes.
       </p>
 
-      <button className="bg-[#209DB4] text-black font-semibold px-8 py-3 rounded-md hover:bg-cyan-400 transition">
+      <button  onClick={() => navigate("/login")}
+      className="bg-[#209DB4] text-black font-semibold px-8 py-3 rounded-md hover:bg-cyan-400 transition">
         Get Started for Free
       </button>
     </div>

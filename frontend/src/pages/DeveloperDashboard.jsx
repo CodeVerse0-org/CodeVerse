@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Bell, LayoutDashboard, Folder, LogOut } from "lucide-react";
+// Added Settings icon to your existing lucide-react imports
+import { Bell, LayoutDashboard, Folder, LogOut, Settings } from "lucide-react"; 
 import { useNavigate } from "react-router-dom";
 
 const DeveloperDashboard = () => {
+  const navigate = useNavigate(); // Added navigate
   const [user, setUser] = useState({ id: null, first_name: "", last_name: "", email: "" });
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,59 +33,49 @@ const DeveloperDashboard = () => {
     }
   }, [API_URL]);
 
-// DeveloperDashboard.jsx
-
-useEffect(() => {
-  const initDashboard = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      window.location.href = "/login";
-      return;
-    }
-
-    try {
-      // 1. Fetch User Info first to get the ID
-      const res = await fetch(`${API_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Auth failed");
-      const userData = await res.json();
-      setUser(userData);
-
-      // 2. Handle Pending Invite ONLY IF we have a token and user ID
-      const pendingToken = localStorage.getItem("pendingInviteToken");
-      if (pendingToken && userData.id) {
-        const acceptRes = await fetch(`${API_URL}/api/invite/accept/${pendingToken}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ user_id: parseInt(userData.id, 10) }),
-        });
-
-        if (acceptRes.ok) {
-          console.log("Invite accepted successfully!");
-          localStorage.removeItem("pendingInviteToken");
-          // Small delay or explicit wait to ensure DB consistency
-        } else {
-          const errorData = await acceptRes.json();
-          console.error("Invite Accept Failed:", errorData.detail);
-        }
+  useEffect(() => {
+    const initDashboard = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        window.location.href = "/login";
+        return;
       }
 
-      // 3. Fetch Repos ONLY AFTER the invite logic is completed
-      await fetchRepos();
-      
-    } catch (err) {
-      console.error("Dashboard Init Error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const res = await fetch(`${API_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error("Auth failed");
+        const userData = await res.json();
+        setUser(userData);
 
-  initDashboard();
-}, [API_URL, fetchRepos]);
+        const pendingToken = localStorage.getItem("pendingInviteToken");
+        if (pendingToken && userData.id) {
+          const acceptRes = await fetch(`${API_URL}/api/invite/accept/${pendingToken}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ user_id: parseInt(userData.id, 10) }),
+          });
+
+          if (acceptRes.ok) {
+            localStorage.removeItem("pendingInviteToken");
+          }
+        }
+
+        await fetchRepos();
+        
+      } catch (err) {
+        console.error("Dashboard Init Error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initDashboard();
+  }, [API_URL, fetchRepos]);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-black text-white">Loading...</div>;
 
@@ -101,15 +93,26 @@ useEffect(() => {
             </div>
           </div>
           <nav className="space-y-2">
-            <div className="flex items-center gap-3 p-3 bg-cyan-600/20 rounded-lg text-cyan-400 cursor-pointer">
+            <div 
+              onClick={() => navigate("/developerDashboard")}
+              className="flex items-center gap-3 p-3 bg-cyan-600/20 rounded-lg text-cyan-400 cursor-pointer"
+            >
               <LayoutDashboard size={20}/> Dashboard
             </div>
-            <div className="flex items-center gap-3 p-3 text-gray-400 hover:bg-white/5 rounded-lg cursor-pointer">
+            <div className="flex items-center gap-3 p-3 text-gray-400 hover:bg-white/5 rounded-lg cursor-pointer transition-colors">
               <Folder size={20}/> Projects
+            </div>
+            
+            {/* Added Settings Option - UI Matched Exactly */}
+            <div 
+              onClick={() => navigate("/developersettings")}
+              className="flex items-center gap-3 p-3 text-gray-400 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
+            >
+              <Settings size={20}/> Settings
             </div>
           </nav>
         </div>
-        <button onClick={() => { localStorage.clear(); window.location.href="/login"; }} className="flex items-center gap-3 text-gray-500 hover:text-red-400 p-3">
+        <button onClick={() => { localStorage.clear(); window.location.href="/login"; }} className="flex items-center gap-3 text-gray-500 hover:text-red-400 p-3 transition-colors">
           <LogOut size={20}/> Logout
         </button>
       </aside>

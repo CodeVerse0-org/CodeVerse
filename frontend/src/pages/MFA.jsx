@@ -4,10 +4,9 @@ import { useNavigate, useLocation } from "react-router-dom";
 const MFA = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user_id } = location.state || {};
+  const { user_id } = location.state || {}; // Get user_id passed from Login
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const inputsRef = useRef([]);
 
@@ -26,14 +25,6 @@ const MFA = () => {
   };
 
   const handleVerify = async () => {
-    if (code.join("").length !== 6) {
-      setErrorMessage("Please enter the 6-digit code.");
-      return;
-    }
-
-    setSubmitting(true);
-    setErrorMessage("");
-
     try {
       const res = await fetch(`${API_URL}/mfa/verify`, {
         method: "POST",
@@ -44,48 +35,41 @@ const MFA = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Invalid code");
 
+      // ✅ Store the final access token
       localStorage.setItem("token", data.access_token);
       const payload = JSON.parse(atob(data.access_token.split(".")[1]));
-      const userRole = payload.role;
-
-      if (userRole === "admin") navigate("/adminDashboard");
-      else navigate("/developerDashboard");
-
+      
+      // ✅ Dynamic Redirection
+      navigate(payload.role === "admin" ? "/adminDashboard" : "/developerDashboard");
     } catch (err) {
       setErrorMessage(err.message);
-    } finally {
-      setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black to-cyan-900 px-4">
-      <div className="bg-gradient-to-tr from-cyan-800/50 to-black/50 rounded-lg shadow-xl w-[400px] px-6 py-8 text-white text-center">
-        <h1 className="text-3xl font-bold mb-1">CodeVerse</h1>
-        <p className="text-gray-400 text-sm mb-6">Enter your MFA code</p>
-
-        {errorMessage && <p className="text-red-500 text-xs mb-2">{errorMessage}</p>}
-
-        <div className="flex justify-between mb-4">
+    <div className="min-h-screen flex items-center justify-center bg-black">
+      <div className="bg-gray-900 p-8 rounded-xl border border-cyan-500 text-center">
+        <h2 className="text-2xl font-bold text-white mb-4">Security Challenge</h2>
+        <p className="text-gray-400 mb-6">Enter the code from your app</p>
+        
+        <div className="flex justify-center gap-2 mb-6">
           {code.map((num, idx) => (
             <input
               key={idx}
+              ref={(el) => (inputsRef.current[idx] = el)}
               type="text"
               maxLength={1}
               value={num}
               onChange={(e) => handleChange(e, idx)}
-              ref={(el) => (inputsRef.current[idx] = el)}
-              className="w-12 h-12 mx-1 text-center text-black bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="w-12 h-14 text-center text-2xl bg-black border border-cyan-500 rounded text-cyan-400"
             />
           ))}
         </div>
-
-        <button
-          onClick={handleVerify}
-          disabled={submitting}
-          className="w-full bg-white text-black py-2 rounded-md font-semibold hover:bg-gray-100"
-        >
-          {submitting ? "Verifying..." : "Verify & Login"}
+        
+        {errorMessage && <p className="text-red-500 mb-4">{errorMessage}</p>}
+        
+        <button onClick={handleVerify} className="w-full bg-cyan-600 py-3 rounded-lg font-bold">
+          Verify & Log In
         </button>
       </div>
     </div>
