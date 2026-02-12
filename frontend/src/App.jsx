@@ -15,7 +15,7 @@ import VerifyEmail from "./pages/VerifyEmail";
 import InviteUsers from "./pages/InviteUsers";
 import AcceptInvite from "./pages/AcceptInvite";
 import UserManagement from "./pages/UserManagement";
-
+import VerifyResetOTP from "./pages/VerifyResetOTP";
 
 const App = () => {
   return (
@@ -48,7 +48,7 @@ const App = () => {
      <Route path="/verify-email" element={<VerifyEmail />} />
      <Route path="/invite-users" element={<InviteUsers />} />
      <Route path="/accept-invite/:token" element={<AcceptInvite />} />
-
+<Route path="/verify-reset" element={<VerifyResetOTP />} />
     </Routes>
   );
 };

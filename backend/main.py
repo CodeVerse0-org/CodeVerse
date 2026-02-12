@@ -2,7 +2,8 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, email_verify, mfa, github, invite
+from routers import auth, email_verify, mfa, github, invite, auth_reset
+
 from db.models import Base
 from db.session import engine
 
@@ -36,3 +37,4 @@ app.include_router(email_verify.router, prefix="/auth", tags=["email"])
 app.include_router(mfa.router, prefix="/mfa", tags=["mfa"])
 app.include_router(github.router, prefix="/api/github", tags=["github"])
 app.include_router(invite.router, prefix="/api/invite", tags=["invite"])
+app.include_router(auth_reset.router, prefix="/auth", tags=["password-reset"])

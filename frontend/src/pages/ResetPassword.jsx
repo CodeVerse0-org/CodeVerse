@@ -8,13 +8,20 @@ const ResetPassword = () => {
 
   const isDisabled = !email;
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!email) return;
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!email) return;
 
-    // call reset password API here later
-    console.log("Reset link sent to:", email);
-  };
+  const res = await fetch("http://localhost:8000/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+  if (res.ok) {
+    navigate("/verify-reset", { state: { email } });
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black via-slate-900 to-teal-900 px-4">
