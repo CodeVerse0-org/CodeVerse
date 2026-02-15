@@ -27,5 +27,3 @@ class Settings(BaseSettings):
             return None
 
 settings = Settings()
-print("Using DATABASE_URL:", settings.DATABASE_URL)
-

@@ -1,25 +1,30 @@
 import React from "react";
 
-// Single step component
 const Step = ({ number, title, description }) => (
-  <div className="text-center max-w-xs">
-    <div className="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-full bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold text-xl shadow-[0_0_20px_rgba(56,189,248,0.4)]">
+  <div className="relative group flex flex-col items-center text-center max-w-xs p-8 rounded-[2.5rem] border border-white/5 bg-white/[0.02] backdrop-blur-sm hover:border-cyan-500/30 transition-all duration-500">
+    <div className="mb-6 w-16 h-16 flex items-center justify-center rounded-2xl bg-black border border-cyan-500/50 text-cyan-400 font-black text-2xl shadow-[0_0_15px_rgba(6,182,212,0.2)] group-hover:shadow-cyan-500/40 group-hover:scale-110 transition-all duration-500">
       {number}
     </div>
-    <h3 className="text-white font-semibold mb-2">{title}</h3>
-    <p className="text-gray-400 text-sm">{description}</p>
+    <h3 className="text-white font-black uppercase tracking-widest text-sm mb-4">{title}</h3>
+    <p className="text-gray-500 text-sm leading-relaxed font-medium">{description}</p>
+    
+    {/* Decorative corner accent */}
+    <div className="absolute top-4 right-4 w-2 h-2 border-t border-r border-white/10 group-hover:border-cyan-500/50 transition-colors" />
   </div>
 );
 
-// HowItWorks section
 const HowItWorks = () => (
-  <section className="max-w-7xl mx-auto px-6 py-28 text-center">
-    <h2 className="text-3xl font-bold text-white mb-3">How It Works</h2>
-    <p className="text-gray-400 mb-16">
-      A simple 3-step process to unlock the power of your codebase.
-    </p>
+  <section className="relative max-w-7xl mx-auto px-6 py-32 overflow-hidden">
+    <div className="text-center mb-20">
+      <h2 className="text-xs font-black uppercase tracking-[0.5em] text-cyan-500 mb-4">The Workflow</h2>
+      <h2 className="text-4xl font-black text-white uppercase italic tracking-tighter">How It <span className="text-cyan-500">Works</span></h2>
+      <div className="w-20 h-1 bg-cyan-500 mx-auto mt-6 rounded-full opacity-50" />
+    </div>
 
-    <div className="flex flex-col md:flex-row justify-center gap-16">
+    <div className="relative flex flex-col md:flex-row justify-between items-center gap-8">
+      {/* Connector Line (Desktop Only) */}
+      <div className="hidden md:block absolute top-1/2 left-[10%] right-[10%] h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-y-12" />
+      
       <Step
         number="1"
         title="Connect Repository"

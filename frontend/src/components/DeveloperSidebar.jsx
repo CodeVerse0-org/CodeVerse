@@ -2,12 +2,14 @@ import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
   Home, 
-  GitBranch, 
-  Users, 
-  Settings, 
-  User, 
+  Network, 
+  FileText, 
+  MessageSquare, 
+  History, 
   LogOut, 
-  UserPlus 
+  User, 
+  Settings,
+  Terminal
 } from "lucide-react";
 
 const SidebarItem = ({ icon, label, active, onClick }) => (
@@ -25,7 +27,7 @@ const SidebarItem = ({ icon, label, active, onClick }) => (
   </div>
 );
 
-const Sidebar = ({ admin, isConnected, isOpen }) => {
+const DeveloperSidebar = ({ user, isOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -34,66 +36,83 @@ const Sidebar = ({ admin, isConnected, isOpen }) => {
     window.location.href = "/login";
   };
 
-  // Maintain consistency with toggle logic used in dashboards
+  // Visibility toggle to match dashboard logic
   if (isOpen === false) return null;
+
+  const isConnected = !!user; // Connected if user data exists
 
   return (
     <aside className="w-80 bg-[#020405] border-r border-white/5 p-8 flex flex-col justify-between h-screen sticky top-0 z-30 shadow-2xl">
       <div>
-        {/* Profile Section */}
+        {/* Profile Section - Styled like Admin */}
         <div className="flex items-center gap-4 mb-12 p-2">
           <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-cyan-900/20 flex items-center justify-center border border-cyan-500/20 shadow-inner">
-              <User className="text-cyan-500" size={28} />
+            <div className="w-14 h-14 rounded-2xl bg-cyan-900/20 flex items-center justify-center border border-cyan-500/20 shadow-inner overflow-hidden">
+               {user?.first_name ? (
+                 <span className="text-cyan-500 font-black text-xl uppercase">{user.first_name[0]}</span>
+               ) : (
+                 <User className="text-cyan-500" size={28} />
+               )}
             </div>
             <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-[3px] border-[#020405] ${isConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500"}`} />
           </div>
           <div className="overflow-hidden">
             <p className="font-black text-lg truncate text-white tracking-tighter leading-tight">
-              {admin.name || "Admin"}
+              {user?.first_name || "Developer"}
             </p>
-            <p className={`text-[10px] font-black uppercase tracking-[0.15em] ${isConnected ? "text-green-500/80" : "text-red-500/80"}`}>
-              {isConnected ? "System Online" : "System Offline"}
-            </p>
+            {/* <p className={`text-[10px] font-black uppercase tracking-[0.15em] ${isConnected ? "text-cyan-500/80" : "text-red-500/80"}`}>
+              {isConnected ? "Dev Mode Active" : "Offline"}
+            </p> */}
           </div>
         </div>
 
-        {/* Navigation */}
+        {/* Navigation - Developer Routes */}
         <nav className="space-y-3">
           <SidebarItem 
             icon={<Home />} 
             label="Dashboard" 
-            active={location.pathname === "/adminDashboard"} 
-            onClick={() => navigate("/adminDashboard")} 
+            active={location.pathname === "/developerDashboard"} 
+            onClick={() => navigate("/developerDashboard")} 
+          />
+          
+          <div className="pt-4 pb-2 px-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-600">Visualization</p>
+          </div>
+
+          <SidebarItem 
+            icon={<Network />} 
+            label="Visualization" 
+            active={location.pathname.startsWith("/visualization")} 
+            onClick={() => navigate("/visualization/select")} 
           />
           <SidebarItem 
-            icon={<GitBranch />} 
-            label="Repositories" 
-            active={location.pathname === "/repositories"} 
-            onClick={() => navigate("/repositories")} 
+            icon={<FileText />} 
+            label="Summaries" 
+            active={location.pathname === "/summaries"} 
+            onClick={() => navigate("/summaries")} 
           />
           <SidebarItem 
-            icon={<Users />} 
-            label="Users & Access" 
-            active={location.pathname === "/Users"} 
-            onClick={() => navigate("/Users")} 
+            icon={<MessageSquare />} 
+            label="Chatbot" 
+            active={location.pathname === "/chatbot"} 
+            onClick={() => navigate("/chatbot")} 
           />
           <SidebarItem 
-            icon={<UserPlus />} 
-            label="Invite Users" 
-            active={location.pathname === "/invite-users"} 
-            onClick={() => navigate("/invite-users")} 
+            icon={<History />} 
+            label="History" 
+            active={location.pathname === "/history"} 
+            onClick={() => navigate("/history")} 
           />
           <SidebarItem 
             icon={<Settings />} 
             label="Settings" 
-            active={location.pathname === "/settings"} 
-            onClick={() => navigate("/settings")} 
+            active={location.pathname === "/developersettings"} 
+            onClick={() => navigate("/developersettings")} 
           />
         </nav>
       </div>
 
-      {/* Logout moved up via padding-bottom */}
+      {/* Logout / Footer Section */}
       <div className="pb-16"> 
         <button 
           onClick={handleLogout} 
@@ -103,13 +122,14 @@ const Sidebar = ({ admin, isConnected, isOpen }) => {
           <span className="uppercase tracking-widest text-xs">Logout</span>
         </button>
         
-        {/* Visual Footer */}
-        <div className="mt-4 px-5 opacity-20">
-           <div className="h-[1px] w-full bg-white" />
+        {/* Visual Footer Detail */}
+        <div className="mt-4 px-5 opacity-20 flex items-center gap-2">
+            <Terminal size={12} className="text-white" />
+            <div className="h-[1px] flex-1 bg-white" />
         </div>
       </div>
     </aside>
   );
 };
 
-export default Sidebar;
+export default DeveloperSidebar;
