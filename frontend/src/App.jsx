@@ -27,7 +27,11 @@ import Repositories from "./pages/Repositories";
 // Visualization (From Code 2)
 import RepoSelectionPage from "./pages/RepoSelectionPage";
 import VisualizationPage from "./pages/VisualizationPage";
+import FunctionVisualizationPage from "./pages/FunctionVisualizationPage";
 
+import FileSummary from "./pages/FileSummary";
+
+// Inside <Routes>
 // Settings (From Code 1)
 import Settings from "./pages/Settings";
 import DeveloperSettings from "./pages/DeveloperSettings";
@@ -69,6 +73,10 @@ const App = () => {
       <Route path="/visualization/select" element={<RepoSelectionPage />} />
       <Route path="/visualization" element={<VisualizationPage />} />
        <Route path="/profilepage" element={<ProfilePage />} />
+       <Route path="/function-visualization" element={<FunctionVisualizationPage />} />
+
+       
+      <Route path="/summaries" element={<FileSummary />} /> 
     </Routes>
   );
 };

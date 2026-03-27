@@ -88,7 +88,7 @@ const DeveloperSidebar = ({ user, isOpen }) => {
           <SidebarItem 
             icon={<FileText />} 
             label="Summaries" 
-            active={location.pathname === "/summaries"} 
+            active={location.pathname === "/summaries-page"} 
             onClick={() => navigate("/summaries")} 
           />
           <SidebarItem 

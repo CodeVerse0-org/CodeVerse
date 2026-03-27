@@ -9,8 +9,8 @@ class Settings(BaseSettings):
         "DATABASE_URL",
         "postgresql://postgres:hello123@localhost:5432/codeverse_db"
     )
-    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "rida.fatima42525@gmail.com")
-    EMAIL_APP_PASSWORD: str = os.getenv("EMAIL_APP_PASSWORD", "kdth rpyg vhbf ggbw")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "codeverse12345@gmail.com")
+    EMAIL_APP_PASSWORD: str = os.getenv("EMAIL_APP_PASSWORD", "kmpa wehp uubo vohd")
 
     GITHUB_APP_ID: int = int(os.getenv("GITHUB_APP_ID", 0))
     GITHUB_APP_SLUG: str = os.getenv("GITHUB_APP_SLUG", "codeverse-tool")

@@ -17,196 +17,162 @@ import random
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# =====================================================
-# SIGNUP INITIATE → SEND EMAIL OTP
-# =====================================================
 @router.post("/signup-initiate")
 def signup_initiate(data: SignupRequest):
-    conn = None
-    cur = None
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor()
+        with conn.cursor() as cur:
+            otp = str(random.randint(100000, 999999))
+            expires_at = datetime.utcnow() + timedelta(minutes=10)
 
-        otp = str(random.randint(100000, 999999))
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+            # 1. Insert the user record (Verification remains FALSE)
+            cur.execute("""
+                INSERT INTO users (
+                    email, first_name, last_name, password_hash, role,
+                    is_email_verified, email_otp, email_otp_expires,
+                    mfa_enabled, mfa_secret
+                )
+                VALUES (%s, %s, %s, %s, %s, FALSE, %s, %s, FALSE, NULL)
+                RETURNING id
+            """, (
+                data.email.lower(),
+                data.first_name,
+                data.last_name,
+                hash_password(data.password),
+                data.role.lower(),
+                otp,
+                expires_at
+            ))
 
-        cur.execute("""
-            INSERT INTO users (
-                email, first_name, last_name, password_hash, role,
-                is_email_verified, email_otp, email_otp_expires,
-                mfa_enabled, mfa_secret
-            )
-            VALUES (%s,%s,%s,%s,%s,FALSE,%s,%s,FALSE,NULL)
-            RETURNING id
-        """, (
-            data.email.lower(),
-            data.first_name,
-            data.last_name,
-            hash_password(data.password),
-            data.role.lower(),
-            otp,
-            expires_at
-        ))
+            user_id = cur.fetchone()
+            
+            # 2. Attempt to send the email BEFORE committing to the DB
+            try:
+                send_otp_email(data.email, otp)
+            except Exception as e:
+                # If email fails, we rollback the DB insert so we don't have a 'ghost' user
+                conn.rollback()
+                print(f"❌ Email Dispatch Failed: {e}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Authentication server could not send verification email."
+                )
 
-        user_id = cur.fetchone()[0]
-        conn.commit()
-
-        # SEND EMAIL OTP
-        send_otp_email(data.email, otp)
-
-        return {
-            "message": "Verification code sent to email",
-            "user_id": user_id,
-            "email": data.email
-        }
+            # 3. If email is successful, commit the database changes
+            conn.commit()
+            return {
+                "message": "Verification code sent to email",
+                "user_id": user_id,
+                "email": data.email
+            }
 
     except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="Email already exists")
+    except Exception as e:
         if conn:
             conn.rollback()
-        raise HTTPException(status_code=400, detail="Email already exists")
+        raise e
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
-
+        if conn:
+            conn.close()
 
 @router.post("/login")
 def login(data: LoginRequest):
-    conn = None
-    cur = None
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, password_hash, role, is_email_verified,
+                       mfa_enabled, mfa_secret
+                FROM users
+                WHERE email=%s AND role=%s
+            """, (data.email.lower(), data.role.lower()))
 
-        cur.execute("""
-            SELECT id, password_hash, role, is_email_verified, 
-                   mfa_enabled, mfa_secret 
-            FROM users 
-            WHERE email=%s AND role=%s
-        """, (data.email.lower(), data.role.lower()))
+            user = cur.fetchone()
+            if not user:
+                raise HTTPException(status_code=400, detail="Invalid credentials")
 
-        user = cur.fetchone()
-        if not user:
-            raise HTTPException(status_code=400, detail="Invalid credentials")
+            user_id, password_hash, role, email_verified, mfa_enabled, mfa_secret = user
 
-        user_id, password_hash, role, email_verified, mfa_enabled, mfa_secret = user
+            if not verify_password(data.password, password_hash):
+                raise HTTPException(status_code=400, detail="Invalid credentials")
 
-        if not verify_password(data.password, password_hash):
-            raise HTTPException(status_code=400, detail="Invalid credentials")
+            if not email_verified:
+                raise HTTPException(status_code=403, detail="Please verify your email before login")
 
-        if not email_verified:
-            raise HTTPException(
-                status_code=403, 
-                detail="Please verify your email before login"
-            )
+            # 4. MFA Logic: Check if MFA is required
+            if mfa_enabled:
+                return {
+                    "mfa_required": True,
+                    "user_id": user_id,
+                    "message": "Two-factor authentication required"
+                }
 
-        # =======================================================
-        # MFA FLOW (FOR BOTH ADMIN & DEVELOPER)
-        # =======================================================
-        # Check if the user has completed MFA setup in Settings
-        if mfa_enabled and mfa_secret:
+            # 5. Direct Token Generation (No MFA required)
+            access_token = create_access_token({
+                "sub": str(user_id),
+                "role": role
+            })
+
             return {
-                "mfa_required": True,
+                "mfa_required": False,
                 "user_id": user_id,
-                "role": role  # Optional: helps frontend routing later
+                "access_token": access_token,
+                "token_type": "bearer"
             }
-
-        # =======================================================
-        # STANDARD LOGIN (IF MFA IS DISABLED)
-        # =======================================================
-        access_token = create_access_token({
-            "sub": str(user_id),
-            "role": role
-        })
-
-        return {
-            "mfa_required": False,
-            "user_id": user_id,
-            "access_token": access_token,
-            "token_type": "bearer"
-        }
-
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
-
-# =====================================================
-# MFA VERIFY → JWT
-# =====================================================
 @router.post("/mfa-verify")
 def verify_mfa(user_id: int, token: str):
-    conn = None
-    cur = None
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor()
+        with conn.cursor() as cur:
+            cur.execute("SELECT mfa_secret, role FROM users WHERE id=%s", (user_id,))
+            user = cur.fetchone()
+            if not user or not user:
+                raise HTTPException(status_code=404, detail="MFA not set up for this user")
 
-        cur.execute("""
-            SELECT mfa_secret, role
-            FROM users WHERE id=%s
-        """, (user_id,))
+            mfa_secret, role = user
+            totp = pyotp.TOTP(mfa_secret)
 
-        user = cur.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            if not totp.verify(token, valid_window=1):
+                raise HTTPException(status_code=400, detail="Invalid MFA token")
 
-        mfa_secret, role = user
-        totp = pyotp.TOTP(mfa_secret)
+            access_token = create_access_token({"sub": str(user_id), "role": role})
 
-        if not totp.verify(token, valid_window=1):
-            raise HTTPException(status_code=400, detail="Invalid MFA token")
-
-        access_token = create_access_token({
-            "sub": str(user_id),
-            "role": role
-        })
-
-        return {
-            "access_token": access_token,
-            "token_type": "bearer"
-        }
-
+            return {
+                "access_token": access_token,
+                "token_type": "bearer"
+            }
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
-
-# =====================================================
-# GET CURRENT USER
-# =====================================================
 @router.get("/me")
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    payload = decode_access_token(token)
-    user_id = payload.get("sub")
-
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    conn = None
-    cur = None
     try:
-        conn = get_db()
-        cur = conn.cursor()
+        payload = decode_access_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-        # UPDATED: Added 'id' to the SELECT statement
-        cur.execute("""
-            SELECT id, first_name, last_name, email
-            FROM users WHERE id=%s
-        """, (user_id,))
-
-        user = cur.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # UPDATED: Included "id" in the response dictionary
-        return {
-            "id": user[0],
-            "first_name": user[1],
-            "last_name": user[2],
-            "email": user[3]
-        }
-
+    user_id = payload.get("sub")
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, first_name, last_name, email, role FROM users WHERE id=%s", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            return {
+                "id": user, 
+                "first_name": user, 
+                "last_name": user, 
+                "email": user, 
+                "role": user
+            }
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if conn:
+            conn.close()

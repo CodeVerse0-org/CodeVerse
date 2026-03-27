@@ -7,8 +7,8 @@ from email.message import EmailMessage
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-SENDER_EMAIL = "rida.fatima42525@gmail.com"      # 👈 your Gmail
-SENDER_PASSWORD = "kdth rpyg vhbf ggbw"          # 👈 Gmail App Password
+SENDER_EMAIL = "codeverse12345@gmail.com"      # 👈 your Gmail
+SENDER_PASSWORD = "kmpa wehp uubo vohd"          # 👈 Gmail App Password
 
 # ------------------------------
 # OTP EMAIL (EXISTING)

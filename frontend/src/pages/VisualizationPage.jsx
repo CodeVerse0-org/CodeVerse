@@ -238,7 +238,24 @@ const VisualizationContent = () => {
 
           <header className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl z-20">
             <div className="flex-1"></div>
+<div className="absolute top-4 right-6 z-20 flex gap-3">
 
+  <button
+    className="px-5 py-2 text-xs font-bold bg-cyan-500 text-black rounded-lg"
+  >
+    FILE GRAPH
+  </button>
+
+  <button
+    onClick={() =>
+      navigate(`/function-visualization?repo=${repoName}&inst=${instId}`)
+    }
+    className="px-5 py-2 text-xs font-bold bg-gray-800 rounded-lg"
+  >
+    FUNCTION GRAPH
+  </button>
+
+</div>
             {!loading && (
               <div className="search-wrapper" ref={searchRef}>
                 <div className="search-container">

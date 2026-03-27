@@ -26,43 +26,27 @@ const UserManagement = () => {
     });
   };
 
-  const fetchData = async () => {
-    setLoading(true);
-    const token = localStorage.getItem("token");
-    if (!token) return navigate("/login");
-    const headers = { Authorization: `Bearer ${token}` };
+  // Inside UserManagement.jsx - Ensure the header is always present
+const fetchData = async () => {
+  setLoading(true);
+  const token = localStorage.getItem("token"); // This token contains the Admin ID
+  if (!token) return navigate("/login");
+  
+  const headers = { Authorization: `Bearer ${token}` };
 
-    try {
-      // Fetching Admin Info and User List in parallel
-      const [statusRes, adminRes, usersRes] = await Promise.all([
-        fetch(`${API_URL}/api/github/status`, { headers }),
-        fetch(`${API_URL}/auth/me`, { headers }),
-        fetch(`${API_URL}/api/invite/manage`, { headers })
-      ]);
-
-      if (adminRes.ok) {
-        const adminData = await adminRes.json();
-        setAdmin({
-          name: `${adminData.first_name} ${adminData.last_name}`,
-          email: adminData.email,
-        });
-      }
-
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        setIsConnected(statusData.connected);
-      }
-
-      if (usersRes.ok) {
-        const userData = await usersRes.json();
-        setUsers(userData);
-      }
-    } catch (err) {
-      console.error("Fetch error:", err);
-    } finally {
-      setLoading(false);
+  try {
+    // The '/manage' endpoint now automatically filters by the token's admin_id
+    const usersRes = await fetch(`${API_URL}/api/invite/manage`, { headers });
+    if (usersRes.ok) {
+      const userData = await usersRes.json();
+      setUsers(userData);
     }
-  };
+  } catch (err) {
+    console.error("Fetch error:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     fetchData();
