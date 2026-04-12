@@ -23,12 +23,12 @@ import AcceptInvite from "./pages/AcceptInvite";
 import GitHubConnect from "./pages/GitHubConnect";
 import GitHubConnectCallback from "./pages/GitHubConnectCallback";
 import Repositories from "./pages/Repositories";
-
+import GraphVisualizerPage from "./pages/GraphVisualizerPage";
 // Visualization (From Code 2)
 import RepoSelectionPage from "./pages/RepoSelectionPage";
 import VisualizationPage from "./pages/VisualizationPage";
 import FunctionVisualizationPage from "./pages/FunctionVisualizationPage";
-
+import HistoryPage from "./pages/HistoryPage";
 import FileSummary from "./pages/FileSummary";
 
 // Inside <Routes>
@@ -74,7 +74,9 @@ const App = () => {
       <Route path="/visualization" element={<VisualizationPage />} />
        <Route path="/profilepage" element={<ProfilePage />} />
        <Route path="/function-visualization" element={<FunctionVisualizationPage />} />
-
+      <Route path="/history" element={<HistoryPage />} />
+      <Route path="/graph-visualizer/:repoName" element={<GraphVisualizerPage />} />
+      
        
       <Route path="/summaries" element={<FileSummary />} /> 
     </Routes>

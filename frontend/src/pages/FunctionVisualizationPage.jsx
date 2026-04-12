@@ -19,14 +19,13 @@ const workerCode = `
     const { nodes, edges } = e.data;
     const g = new dagre.graphlib.Graph().setGraph({ 
       rankdir: "TB", 
-      nodesep: 250,  // Increased spacing between bubbles
-      ranksep: 300,  // Increased vertical spacing
+      nodesep: 250, 
+      ranksep: 300, 
       marginx: 100,
       marginy: 100
     });
     g.setDefaultEdgeLabel(() => ({}));
     
-    // Tell Dagre the bubbles are large (180x180) to prevent overlapping
     nodes.forEach(n => g.setNode(n.id, { width: 200, height: 200 }));
     edges.forEach(e => g.setEdge(e.source, e.target));
     
@@ -82,68 +81,85 @@ const FunctionVisualizationContent = () => {
   };
 
   const fetchFunctionGraph = useCallback(async () => {
-    if (!repoName || !instId) return;
-    
-    // Reset state for new repository
-    setLoading(true);
-    setIsDataReady(false);
-    setNodes([]); 
-    setEdges([]);
+    if (!repoName) return;
 
     const token = localStorage.getItem("token");
+    const timestamp = searchParams.get("timestamp");
+    const isHistory = searchParams.get("history") === "true";
+    const graphType = searchParams.get("graph_type") || "function";
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/repos/generate-function-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
+      setLoading(true);
+      setIsDataReady(false);
+
+      let endpoint;
+      let method;
+
+      if (isHistory && timestamp) {
+        console.log("📜 Loading Function Graph from Vault...");
+        // Use the raw timestamp from searchParams to avoid double-encoding %3A
+        endpoint = `${API_URL}/api/repos/graph-history/${encodeURIComponent(repoName)}?timestamp=${timestamp}&graph_type=${graphType}`;
+        method = "GET"; 
+      } else {
+        console.log("🚀 Generating New Function Graph...");
+        endpoint = `${API_URL}/api/repos/generate-function-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`;
+        method = "POST";
+      }
+
+      const res = await fetch(endpoint, {
+        method: method,
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
       const data = await res.json();
-      if (!data.nodes) throw new Error("No nodes found");
+      if (!res.ok) throw new Error(data.detail || "Failed to fetch graph");
 
-      const mappedNodes = data.nodes.map((n) => ({
+      // Standardize the mapping to handle both LIVE and HISTORY data formats
+      const nodesData = data.nodes || [];
+      const edgesData = data.dependencies || data.links || [];
+
+      const mappedNodes = nodesData.map((n) => ({
         id: n.id,
-        type: "bubble", // Uses your BubbleNode.jsx
+        type: "bubble",
         data: {
-          label: n.data.label,
+          label: n.data.label || "Unnamed Function",
           fullName: n.id,
-          // Determines the bubble color (Rose for backend, Cyan for others)
           category: n.id.toLowerCase().includes("backend") ? "backend" : "function",
-          codeSnippet: n.data.content || "// Implementation not found",
+          codeSnippet: n.data.content || "// No implementation source available",
           fileName: n.data.file || "Source File",
-          imports: (data.dependencies || [])
+          imports: edgesData
             .filter(d => d.source === n.id)
-            .map(d => d.target.split('.').pop())
+            .map(d => (d.target_full || d.target).split('/').pop())
         }
       }));
 
-      const mappedEdges = (data.dependencies || []).map((e, i) => ({
-        id: `e-${i}`,
+      const mappedEdges = edgesData.map((e, i) => ({
+        id: `fe-${i}`,
         source: e.source,
-        target: e.target,
+        target: e.target_full || e.target,
         animated: true,
-        style: { stroke: "#22d3ee", strokeWidth: 2, opacity: 0.4, strokeDasharray: '5,5' },
+        style: { stroke: "#22d3ee", strokeWidth: 2, opacity: 0.6, strokeDasharray: '5,5' },
         markerEnd: { type: MarkerType.ArrowClosed, color: "#22d3ee" }
       }));
 
+      // SEND TO WORKER FOR LAYOUT
       worker.postMessage({ nodes: mappedNodes, edges: mappedEdges });
 
       worker.onmessage = (event) => {
         setNodes(event.data.nodes);
         setEdges(event.data.edges);
-        setLoading(false);
-        setIsDataReady(true);
-        setTimeout(() => fitView({ padding: 0.2, duration: 800 }), 200);
+        setTimeout(() => {
+          setIsDataReady(true);
+          setLoading(false);
+          setTimeout(() => fitView({ padding: 0.3, duration: 800 }), 100);
+        }, 300);
       };
 
     } catch (err) {
-      console.error(err);
+      console.error("❌ Graph Fetch Error:", err);
       setLoading(false);
     }
-  }, [repoName, instId, API_URL, worker, fitView]);
+  }, [repoName, instId, API_URL, searchParams, worker, fitView]);
 
   useEffect(() => {
     fetchFunctionGraph();
@@ -151,11 +167,8 @@ const FunctionVisualizationContent = () => {
 
   return (
     <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
-      {/* --- CSS: Replicating the "File Level" Bubble Aesthetic --- */}
       <style>{`
-        .bubble-node-container { 
-          display: flex; flex-direction: column; align-items: center; justify-content: center; 
-        }
+        .bubble-node-container { display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .bouncy-sphere {
           width: 140px; height: 140px; border-radius: 50%; border: 2px solid;
           display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -170,14 +183,10 @@ const FunctionVisualizationContent = () => {
           position: absolute; top: 15%; left: 15%; width: 30%; height: 30%;
           background: rgba(255,255,255,0.2); border-radius: 50%; filter: blur(8px);
         }
-        .bubble-content { 
-          text-align: center; display: flex; flex-direction: column; gap: 4px; padding: 10px;
-        }
+        .bubble-content { text-align: center; display: flex; flex-direction: column; gap: 4px; padding: 10px; }
         .category-tag { font-size: 8px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; }
         .file-name { font-size: 11px; font-weight: 700; color: white; word-break: break-all; max-width: 110px; }
         .custom-handle { width: 8px !important; height: 8px !important; border: none !important; }
-        
-        /* Search Styling */
         .search-wrapper { position: relative; width: 450px; z-index: 1001; }
         .search-container {
           display: flex; align-items: center; background: rgba(0,0,0,0.85); 
@@ -205,7 +214,6 @@ const FunctionVisualizationContent = () => {
           <header className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl z-20">
             <div className="flex-1"></div>
             
-            {/* Search Bar */}
             {!loading && (
               <div className="search-wrapper" ref={searchRef}>
                 <div className="search-container">

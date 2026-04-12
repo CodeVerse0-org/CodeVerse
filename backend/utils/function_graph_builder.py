@@ -2,8 +2,7 @@ def build_function_graph(all_functions, all_calls):
     nodes = []
     edges = []
 
-    # Map function names to their full unique IDs
-    # Format: {"login": "src/auth/authService.js::login"}
+    # Map function names to their full unique IDs for edge resolution
     name_to_id_map = {f["name"]: f["id"] for f in all_functions}
 
     for f in all_functions:
@@ -12,18 +11,19 @@ def build_function_graph(all_functions, all_calls):
             "data": {
                 "label": f["name"],
                 "category": "function",
-                "file": f["file"]
+                "file": f["file"],
+                "content": f.get("content", "// Source not available") # CRITICAL: Pass code to frontend
             }
         })
 
     for call in all_calls:
         target_name = call["target"]
         
-        # Connect if we know where this function is defined
+        # Resolve the call target name (e.g., 'login') to its full ID
         if target_name in name_to_id_map:
             target_id = name_to_id_map[target_name]
             
-            # Avoid self-loops (function calling itself)
+            # Avoid self-loops
             if call["source"] != target_id:
                 edges.append({
                     "source": call["source"],

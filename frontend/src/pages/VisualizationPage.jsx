@@ -97,18 +97,30 @@ const VisualizationContent = () => {
       return () => clearTimeout(timer);
     }
   }, [isDataReady]);
-
   const fetchGraph = useCallback(async () => {
-    if (!repoName || !instId) return;
+    if (!repoName) return;
     const token = localStorage.getItem("token");
+    const timestamp = searchParams.get("timestamp");
+    const isHistory = searchParams.get("history");
+
     try {
       const userRes = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
       if (userRes.ok) setUser(await userRes.json());
-      const res = await fetch(`${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`, {
-        method: "POST",
+
+      // DECIDE ENDPOINT: New Generation vs. History Retrieval
+      let endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`;
+      if (isHistory && timestamp) {
+          endpoint = `${API_URL}/api/repos/graph-history/${encodeURIComponent(repoName)}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+      }
+
+      const res = await fetch(endpoint, {
+        method: isHistory ? "GET" : "POST", // History uses GET, Generation uses POST
         headers: { Authorization: `Bearer ${token}` }
       });
+      
       const data = await res.json();
+      
+      // ... (Keep the existing mapping logic for 'nodes' and 'edges' from your displayData) ...
       const nodes = (data.nodes || []).map(n => ({
         id: n.id, type: 'bubble',
         data: { 
@@ -116,7 +128,6 @@ const VisualizationContent = () => {
           fullName: n.data.label,
           category: n.id.toLowerCase().includes('backend') ? 'backend' : 'frontend',
           imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full.split('/').pop()),
-          imports_full: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full),
           codeSnippet: n.data.content || "// No source preview available"
         }
       }));
@@ -132,8 +143,11 @@ const VisualizationContent = () => {
         };
       });
       setRawGraphData({ nodes, edges });
-    } catch (err) { setLoading(false); }
-  }, [repoName, instId, API_URL]);
+    } catch (err) { 
+      setLoading(false); 
+    }
+}, [repoName, instId, API_URL, searchParams]);
+  
 
   useEffect(() => { fetchGraph(); }, [fetchGraph]);
 
