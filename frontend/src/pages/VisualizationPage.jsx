@@ -99,41 +99,100 @@ const VisualizationContent = () => {
   }, [isDataReady]);
 
   const fetchGraph = useCallback(async () => {
-    if (!repoName || !instId) return;
+    if (!repoName) return;
     const token = localStorage.getItem("token");
+    const timestamp = searchParams.get("timestamp");
+    const isHistory = searchParams.get("history") === "true";
+
     try {
-      const userRes = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-      if (userRes.ok) setUser(await userRes.json());
-      const res = await fetch(`${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      const nodes = (data.nodes || []).map(n => ({
-        id: n.id, type: 'bubble',
-        data: { 
-          label: n.data.label.split('/').pop(),
-          fullName: n.data.label,
-          category: n.id.toLowerCase().includes('backend') ? 'backend' : 'frontend',
-          imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full.split('/').pop()),
-          imports_full: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full),
-          codeSnippet: n.data.content || "// No source preview available"
+      if (!token) {
+        console.error("No token found");
+        navigate("/login");
+        return;
+      }
+
+      // We fetch user info, but don't 'throw' if it fails, to avoid blocking the graph
+      fetch(`${API_URL}/auth/me`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      })
+      .then(res => res.ok ? res.json() : null)
+      .then(userData => { if(userData) setUser(userData); })
+      .catch(e => console.warn("Auth check failed, proceeding with graph fetch"));
+
+      let endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`;
+
+      if (isHistory && timestamp) {
+          endpoint = `${API_URL}/api/repos/graph-history/${encodeURIComponent(repoName)}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+      }
+
+      const res = await fetch(endpoint, {
+        method: isHistory ? "GET" : "POST", 
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
         }
-      }));
-      const edges = (data.dependencies || []).map((dep, idx) => {
-        const color = dep.source.toLowerCase().includes("backend") ? '#fb7185' : '#22d3ee';
+      });
+
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      
+      if (!res.ok) throw new Error(`Server Error: ${res.status}`);
+      
+      const data = await res.json();
+      
+      const nodes = (data.nodes || []).map(n => {
+        const rawLabel = n.data?.label || n.id || "unknown";
+        const cleanLabel = rawLabel.includes('/') ? rawLabel.split('/').pop() : rawLabel;
+
         return {
-          id: `e-${idx}`, source: dep.source, target: dep.target_full, label: "IMPORTS", animated: true,
-          labelStyle: { fill: color, fontWeight: 900, fontSize: 7, textTransform: 'uppercase', letterSpacing: '1.5px' },
-          labelBgPadding: [6, 4], labelBgBorderRadius: 2,
-          labelBgStyle: { fill: '#000', fillOpacity: 1, stroke: color, strokeWidth: 1 },
+          id: String(n.id), 
+          type: 'bubble',
+          data: { 
+            label: cleanLabel,
+            fullName: rawLabel,
+            category: String(n.id).toLowerCase().includes('backend') ? 'backend' : 'frontend',
+            imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => {
+              const targetPath = d.target_full || d.target || "";
+              return targetPath.includes('/') ? targetPath.split('/').pop() : targetPath;
+            }),
+            codeSnippet: n.data?.content || "// No source preview available"
+          }
+        };
+      });
+
+      const edges = (data.dependencies || []).map((dep, idx) => {
+        const sId = String(dep.source);
+        const tId = String(dep.target_full || dep.target);
+        const color = sId.toLowerCase().includes("backend") ? '#fb7185' : '#22d3ee';
+
+        return {
+          id: `e-${idx}`, 
+          source: sId, 
+          target: tId, 
+          label: "IMPORTS", 
+          animated: true,
+          labelStyle: { fill: color, fontWeight: 900, fontSize: 7, textTransform: 'uppercase' },
           style: { stroke: color, strokeWidth: 2, opacity: 0.8 },
           markerEnd: { type: MarkerType.ArrowClosed, color: color, width: 15, height: 15 }
         };
+      }).filter(edge => {
+        return nodes.some(n => n.id === edge.source) && nodes.some(n => n.id === edge.target);
       });
+
       setRawGraphData({ nodes, edges });
-    } catch (err) { setLoading(false); }
-  }, [repoName, instId, API_URL]);
+      
+      if (nodes.length === 0) {
+        setLoading(false);
+        setIsDataReady(true);
+      }
+    } catch (err) { 
+      console.error("Graph Data Load Failed:", err);
+      setLoading(false); 
+      setIsDataReady(true); 
+    }
+  }, [repoName, instId, API_URL, searchParams, navigate]);
 
   useEffect(() => { fetchGraph(); }, [fetchGraph]);
 
@@ -238,7 +297,17 @@ const VisualizationContent = () => {
 
           <header className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl z-20">
             <div className="flex-1"></div>
-
+            <div className="absolute top-4 right-6 z-20 flex gap-3">
+              <button className="px-5 py-2 text-xs font-bold bg-cyan-500 text-black rounded-lg">
+                FILE GRAPH
+              </button>
+              <button
+                onClick={() => navigate(`/function-visualization?repo=${repoName}&inst=${instId}`)}
+                className="px-5 py-2 text-xs font-bold bg-gray-800 rounded-lg"
+              >
+                FUNCTION GRAPH
+              </button>
+            </div>
             {!loading && (
               <div className="search-wrapper" ref={searchRef}>
                 <div className="search-container">

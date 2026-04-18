@@ -7,8 +7,8 @@ from email.message import EmailMessage
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-SENDER_EMAIL = "rida.fatima42525@gmail.com"      # 👈 your Gmail
-SENDER_PASSWORD = "kdth rpyg vhbf ggbw"          # 👈 Gmail App Password
+SENDER_EMAIL = "codeverse12345@gmail.com"      # 👈 your Gmail
+SENDER_PASSWORD = "kmpa wehp uubo vohd"          # 👈 Gmail App Password
 
 # ------------------------------
 # OTP EMAIL (EXISTING)
@@ -74,4 +74,38 @@ If you did not expect this invitation, please ignore this email.
         print(f"✅ Invitation email sent to {to_email}")
     except Exception as e:
         print("❌ Invitation email send failed:", e)
+        raise
+# ------------------------------
+# RESET PASSWORD OTP EMAIL (NEW)
+# ------------------------------
+def send_reset_password_email(to_email: str, otp: str):
+    msg = EmailMessage()
+    msg["Subject"] = "CodeVerse - Reset Password Code"
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = to_email
+
+    msg.set_content(f"""
+Hello,
+
+You requested to reset your CodeVerse password.
+
+Your reset code is:
+
+🔐 {otp}
+
+This code will expire in 10 minutes.
+
+If you did not request this, please ignore this email.
+
+— CodeVerse Team
+""")
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+        print(f"✅ Reset password OTP sent to {to_email}")
+    except Exception as e:
+        print("❌ Reset password email failed:", e)
         raise

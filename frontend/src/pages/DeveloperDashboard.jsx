@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Eye, Folder, Search, AlertCircle, RefreshCcw, Loader2 } from "lucide-react";
+import { 
+  Plus, Eye, Folder, Search, AlertCircle, RefreshCcw, Loader2, 
+  Terminal, LayoutDashboard, Clock, BarChart3, ChevronRight 
+} from "lucide-react";
 
 import DeveloperSidebar from "../components/DeveloperSidebar";
 import DeveloperNavbar from "../components/DeveloperNavbar";
@@ -11,8 +14,10 @@ const DeveloperDashboard = () => {
   const [projects, setProjects] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Search State
+  const [searchTerm, setSearchTerm] = useState("");
 
-  // --- Persistent Sidebar State ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
@@ -89,127 +94,157 @@ const DeveloperDashboard = () => {
     initDashboard();
   }, [initDashboard]);
 
+  // Filter Logic
+  const filteredProjects = projects.filter((project) =>
+    project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    project.fullName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden selection:bg-cyan-500/30">
       <DeveloperNavbar toggleSidebar={toggleSidebar} />
 
       <div className="flex-1 flex overflow-hidden">
         <DeveloperSidebar user={user} isOpen={isSidebarOpen} />
 
         <div className="flex-1 flex flex-col relative overflow-hidden">
-          <header className="h-12 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl shrink-0 z-20">
-            <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Developer Dashboard</h2>
-          </header>
+          {/* Top Breadcrumb Header */}
+          {/* <header className="h-14 border-b border-white/5 flex items-center justify-between px-8 bg-black/40 backdrop-blur-2xl shrink-0 z-20">
+            <div className="flex items-center gap-3">
+              <LayoutDashboard size={14} className="text-cyan-500" />
+              <h2 className="text-[11px] font-black uppercase tracking-[0.3em] text-gray-400">Developer </h2>
+            </div>
+          </header> */}
 
-          <main className="flex-1 p-8 flex gap-8 overflow-y-auto bg-[#010203] custom-scrollbar">
-            <div className="flex-1">
-              <div className="flex justify-between items-start mb-6 text-left">
+          <main className="flex-1 p-10 flex gap-10 overflow-y-auto bg-[#010203] custom-scrollbar relative">
+            <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
+
+            {/* MAIN CONTENT AREA */}
+            <div className="flex-1 relative z-10">
+              <div className="flex justify-between items-end mb-10">
                 <div>
-                  <h1 className="text-2xl font-bold text-white">Welcome Back!</h1>
-                  <p className="text-[11px] text-gray-500">Overview of your assigned projects and active repositories.</p>
+                  <h1 className="text-3xl font-black text-white tracking-tight leading-none">Developer Dashboard</h1>
+                  <p className="text-[13px] text-gray-500 mt-3 font-medium">Access and visualize your assigned project repositories.</p>
                 </div>
-                <button className="bg-[#134e4e] text-cyan-100 px-4 py-2 rounded-md text-xs font-semibold hover:bg-[#1a6b6b] transition-colors flex items-center gap-2">
-                  <Plus size={16} /> Upload Local Projects
+                <button className="bg-cyan-600/10 border border-cyan-500/20 text-cyan-400 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-cyan-500 hover:text-white transition-all duration-300 flex items-center gap-3">
+                  <Plus size={18} strokeWidth={3} /> New Project
                 </button>
               </div>
 
-              <div className="relative mb-10">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+              {/* SEARCH BAR */}
+              <div className="relative mb-12">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
                 <input 
                   type="text" 
-                  placeholder="Search assigned projects..." 
-                  className="w-full bg-black border border-white/10 rounded-md py-2 pl-10 text-xs text-gray-300 focus:outline-none focus:border-cyan-500/30 transition-all" 
+                  placeholder="Search your repositories..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-white/[0.02] border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-[13px] text-gray-200 focus:outline-none focus:border-cyan-500/50 transition-all" 
                 />
               </div>
 
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-md font-semibold text-white">Active Projects</h2>
-                <button className="text-cyan-500 text-[11px] hover:underline">View all</button>
-              </div>
-
-              <div className="border border-white/5 rounded-md overflow-hidden bg-black/20 backdrop-blur-sm min-h-[300px] flex flex-col">
+              {/* TABLE */}
+              <div className="border border-white/10 rounded-3xl overflow-hidden bg-black/40 backdrop-blur-xl min-h-[400px] flex flex-col shadow-2xl">
                 {loadingData ? (
-                  <div className="flex-1 flex flex-col items-center justify-center space-y-3">
-                    <Loader2 className="animate-spin text-cyan-500" size={24} />
-                    <span className="text-[10px] uppercase tracking-tighter text-gray-500">Retrieving Repositories...</span>
+                  <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="animate-spin text-cyan-500" size={32} />
+                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-gray-500">Syncing...</span>
                   </div>
-                ) : error ? (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-3 p-6 text-center">
-                        <AlertCircle className="text-red-500/50" size={24} />
-                        <p className="text-xs text-gray-500">{error}</p>
-                        <button onClick={initDashboard} className="text-[10px] text-cyan-500 flex items-center gap-1 hover:text-cyan-400">
-                            <RefreshCcw size={10} /> Try Again
-                        </button>
-                    </div>
                 ) : (
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="border-b border-white/5 text-gray-500 uppercase">
+                  <table className="w-full text-left">
+                    <thead className="bg-white/[0.02] border-b border-white/5 text-gray-500">
                       <tr>
-                        <th className="px-6 py-4 font-medium text-[10px] tracking-wider">Project Name</th>
-                        <th className="px-6 py-4 font-medium text-[10px] tracking-wider text-center">Repository Path</th>
-                        <th className="px-6 py-4"></th>
+                        <th className="px-8 py-5 font-black text-[10px] uppercase tracking-[0.2em]">Project Name</th>
+                        <th className="px-8 py-5 font-black text-[10px] uppercase tracking-[0.2em] text-center">Path</th>
+                        <th className="px-8 py-5"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {projects.map((p) => (
-                        <tr key={p.id} className="group hover:bg-white/[0.02] transition-colors">
-                          <td className="px-6 py-4 text-gray-300 font-medium">{p.name}</td>
-                          <td className="px-6 py-4 text-gray-500 text-center font-mono">{p.fullName}</td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => navigate(`/visualization?repo=${p.fullName}`)} 
-                              className="flex items-center gap-2 ml-auto px-4 py-1.5 bg-[#1a1a1a] border border-white/10 rounded text-[10px] hover:bg-cyan-900/20 hover:text-cyan-400 transition-all text-gray-400"
-                            >
-                              <Eye size={12} /> View Visualization
-                            </button>
+                      {filteredProjects.length > 0 ? (
+                        filteredProjects.map((p) => (
+                          <tr key={p.id} className="group hover:bg-white/[0.01] transition-colors">
+                            <td className="px-8 py-6">
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-cyan-500/5 border border-cyan-500/10 flex items-center justify-center">
+                                  <Folder size={18} className="text-cyan-500/50" />
+                                </div>
+                                <span className="text-[14px] text-gray-200 font-bold">{p.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-8 py-6 text-gray-500 text-center font-mono text-[12px]">{p.fullName}</td>
+                            <td className="px-8 py-6 text-right">
+                              <button 
+                                onClick={() => navigate(`/visualization/select`)} 
+                                className="inline-flex items-center gap-2 px-6 py-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-cyan-500 hover:text-white transition-all shadow-lg shadow-cyan-950/20"
+                              >
+                                Visulization <ChevronRight size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="3" className="px-8 py-20 text-center">
+                            <div className="flex flex-col items-center opacity-40">
+                              <Search size={40} className="mb-4" />
+                              <p className="text-sm font-bold uppercase tracking-widest">No matching repositories</p>
+                            </div>
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
-                )}
-
-                {!loadingData && projects.length === 0 && !error && (
-                  <div className="p-20 text-center flex flex-col items-center">
-                    <Folder size={40} className="text-gray-800 mb-4" />
-                    <p className="text-gray-600 text-[11px]">No active projects found.</p>
-                  </div>
                 )}
               </div>
             </div>
 
-            <div className="w-80 shrink-0 space-y-4">
-              <div className="bg-black/40 border border-white/10 rounded-lg p-5 min-h-[220px] flex flex-col">
-                <h3 className="text-[10px] font-semibold text-gray-500 uppercase text-center mb-4 tracking-widest border-b border-white/5 pb-2">Notifications</h3>
-                {loadingData ? (
-                     <div className="flex-1 flex items-center justify-center">
-                        <Loader2 className="animate-spin text-gray-700" size={16} />
-                     </div>
-                ) : (
-                    <p className="text-[10px] text-gray-700 italic text-center mt-10">No new notifications</p>
-                )}
-              </div>
-              
-              <div className="bg-black/40 border border-white/10 rounded-lg p-5 min-h-[220px]">
-                <h3 className="text-[10px] font-semibold text-gray-500 uppercase text-center mb-4 tracking-widest border-b border-white/5 pb-2">System Status</h3>
-                <div className="mt-4 flex items-center justify-between text-[10px]">
-                   <span className="text-gray-500">API Latency</span>
-                   <span className="text-cyan-500">24ms</span>
+            {/* RIGHT SIDE PANEL */}
+            <div className="w-80 shrink-0 space-y-6 relative z-10">
+              {/* STATS CARD */}
+              <div className="bg-white/[0.02] border border-white/10 rounded-[2rem] p-8 shadow-xl">
+                <div className="flex items-center gap-3 mb-8">
+                  <BarChart3 size={18} className="text-cyan-500" />
+                  <h3 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Overview</h3>
                 </div>
-                <div className="mt-4 flex items-center justify-between text-[10px]">
-                   <span className="text-gray-500">Auth Server</span>
-                   <span className="text-green-500">Online</span>
+                <div className="grid grid-cols-1 gap-6">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Total Repositories</p>
+                    <p className="text-4xl font-black text-white">{projects.length}</p>
+                  </div>
+                  <div className="pt-4 border-t border-white/5">
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Active Sessions</p>
+                    <p className="text-2xl font-black text-cyan-500">01</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* RECENT LOG CARD */}
+              <div className="bg-white/[0.02] border border-white/10 rounded-[2rem] p-8 shadow-xl flex-1">
+                <div className="flex items-center gap-3 mb-8">
+                  <Clock size={18} className="text-gray-500" />
+                  <h3 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Last Sync</h3>
+                </div>
+                <div className="space-y-6">
+                    <div className="flex gap-4">
+                       <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 mt-1" />
+                       <div>
+                         <p className="text-[12px] font-bold text-gray-300">Repository List Updated</p>
+                         <p className="text-[10px] text-gray-600 font-medium uppercase mt-1">Just now</p>
+                       </div>
+                    </div>
+                    <div className="flex gap-4 opacity-50">
+                       <div className="w-1.5 h-1.5 rounded-full bg-gray-700 mt-1" />
+                       <div>
+                         <p className="text-[12px] font-bold text-gray-400">Session Authenticated</p>
+                         <p className="text-[10px] text-gray-600 font-medium uppercase mt-1">12 mins ago</p>
+                       </div>
+                    </div>
                 </div>
               </div>
             </div>
           </main>
         </div>
       </div>
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 10px; }
-      `}</style>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Network, CheckCircle2, Loader2 } from "lucide-react";
+import { Network, CheckCircle2, Github, AlertCircle, ArrowRight, ShieldCheck, Box, Search } from "lucide-react";
 
 import DeveloperSidebar from "../components/DeveloperSidebar";
 import DeveloperNavbar from "../components/DeveloperNavbar"; 
@@ -8,11 +8,19 @@ import DeveloperNavbar from "../components/DeveloperNavbar";
 const RepoSelectionPage = () => {
   const navigate = useNavigate();
   
-  // --- Persistent Sidebar State ---
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
   });
+
+  const [projects, setProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [selectedRepo, setSelectedRepo] = useState("");
+  const [installationId, setInstallationId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [filterQuery, setFilterQuery] = useState("");
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => {
@@ -21,14 +29,6 @@ const RepoSelectionPage = () => {
       return newState;
     });
   };
-
-  const [projects, setProjects] = useState([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [selectedRepo, setSelectedRepo] = useState("");
-  const [installationId, setInstallationId] = useState(null);
-  const [user, setUser] = useState(null);
-
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
   const fetchData = useCallback(async () => {
     setLoadingProjects(true);
@@ -42,11 +42,10 @@ const RepoSelectionPage = () => {
       const res = await fetch(`${API_URL}/api/github/developer/repos`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
       if (res.ok) {
         const data = await res.json();
         setProjects(data);
-        const found = data.find(r => r.installation_id);
-        if (found) setInstallationId(found.installation_id);
       }
     } catch (err) {
       console.error("Fetch error:", err);
@@ -57,26 +56,37 @@ const RepoSelectionPage = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const filteredProjects = projects.filter(p => 
+    p.full_name.toLowerCase().includes(filterQuery.toLowerCase())
+  );
+
+  const handleRepoClick = (repo) => {
+    setSelectedRepo(repo.full_name);
+    setInstallationId(repo.installation_id);
+  };
+
   const handleProcess = () => {
     if (!selectedRepo || !installationId) return;
     navigate(`/visualization?repo=${encodeURIComponent(selectedRepo)}&inst=${installationId}`);
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#020405] text-gray-400 font-sans overflow-hidden selection:bg-cyan-500/30">
       <style>{`
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-        .skeleton {
-          background: linear-gradient(90deg, #0a0a0a 25%, #1a1a1a 50%, #0a0a0a 75%);
-          background-size: 200% 100%;
-          animation: shimmer 1.5s infinite;
-        }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        .skeleton { background: linear-gradient(90deg, #050505 25%, #0f172a 50%, #050505 75%); background-size: 200% 100%; animation: shimmer 2s infinite linear; }
+        
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.2); border-radius: 10px; }
+
+        .scanline {
+          width: 100%; height: 100px; z-index: 10;
+          background: linear-gradient(0deg, rgba(34, 211, 238, 0.05) 0%, transparent 100%);
+          position: absolute; bottom: 0; left: 0;
+          animation: scan 4s linear infinite;
+        }
+        @keyframes scan { from { transform: translateY(0); } to { transform: translateY(-800%); } }
       `}</style>
 
       <DeveloperNavbar toggleSidebar={toggleSidebar} />
@@ -85,77 +95,142 @@ const RepoSelectionPage = () => {
         <DeveloperSidebar user={user} isOpen={isSidebarOpen} />
         
         <div className="flex-1 flex flex-col relative overflow-hidden">
-          <header className="h-12 border-b border-white/5 flex items-center px-6 bg-black/40 backdrop-blur-xl justify-between z-20">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-white">Repository Selection</h2>
-            <div className="text-[10px] text-gray-500">
-              {projects.length} Total Repositories
+          {/* Sub-Header */}
+          <header className="h-20 border-b border-white/5 flex items-center px-10 bg-black/20 backdrop-blur-md justify-between z-20">
+            <div className="flex items-center gap-5">
+               <div className="bg-white/5 p-3 rounded-xl">
+                 <Github size={20} className="text-white" />
+               </div>
+               <div>
+                 <h2 className="text-sm font-black uppercase tracking-[.25em] text-white">Repository Browser</h2>
+                 <p className="text-[11px] text-gray-500 uppercase tracking-widest mt-1">Select a target for architecture mapping</p>
+               </div>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-lg font-black text-cyan-500 leading-none">{filteredProjects.length}</span>
+              <span className="text-[10px] uppercase tracking-tighter text-gray-600 font-bold">Active Targets</span>
             </div>
           </header>
 
-          <main className="flex-1 p-8 flex gap-8 overflow-hidden bg-[#010203]">
-            <div className="w-1/3 border border-white/5 rounded-xl bg-black/40 overflow-y-auto custom-scrollbar flex flex-col">
-              {loadingProjects ? (
-                <div className="p-4 space-y-4">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Loader2 size={14} className="animate-spin text-cyan-500" />
-                    <span className="text-[10px] uppercase tracking-widest text-gray-500">Fetching Repositories</span>
-                  </div>
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div key={i} className="h-12 w-full skeleton rounded-md border border-white/5"></div>
-                  ))}
-                </div>
-              ) : (
-                projects.map(repo => (
-                  <div 
-                    key={repo.full_name} 
-                    onClick={() => setSelectedRepo(repo.full_name)} 
-                    className={`p-4 border-b border-white/5 flex justify-between items-center cursor-pointer transition-all ${
-                      selectedRepo === repo.full_name 
-                        ? 'bg-cyan-950/20 text-cyan-400 border-l-2 border-l-cyan-500' 
-                        : 'hover:bg-white/5'
-                    }`}
-                  >
-                    <span className="text-xs font-mono truncate mr-2">{repo.full_name}</span>
-                    {selectedRepo === repo.full_name && <CheckCircle2 size={14} className="shrink-0 text-cyan-500" />}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="flex-1 flex flex-col items-center justify-center border border-white/5 rounded-xl bg-black/40 p-10 relative overflow-hidden">
-              <div className="relative">
-                <div className="absolute inset-0 bg-cyan-500/10 blur-[100px] rounded-full"></div>
-                <Network 
-                  size={80} 
-                  className={`relative transition-all duration-700 ${
-                    selectedRepo ? 'text-cyan-500 drop-shadow-[0_0_15px_rgba(6,182,212,0.5)] scale-110' : 'text-gray-800'
-                  }`} 
+          <main className="flex-1 p-8 lg:p-12 flex gap-8 overflow-hidden bg-[#020405]">
+            
+            {/* Left Panel: The Target List */}
+            <div className="w-[420px] flex flex-col border border-white/5 rounded-3xl bg-black/60 backdrop-blur-sm overflow-hidden shadow-2xl">
+              <div className="p-5 border-b border-white/5 bg-white/[0.02] flex items-center gap-3">
+                <Search size={18} className="text-gray-600" />
+                <input 
+                  type="text" 
+                  placeholder="FILTER REPOSITORIES..." 
+                  className="w-full bg-transparent text-xs font-bold tracking-widest focus:text-cyan-400 outline-none transition-all placeholder:text-gray-700"
+                  value={filterQuery}
+                  onChange={(e) => setFilterQuery(e.target.value)}
                 />
               </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {loadingProjects ? (
+                  <div className="p-6 space-y-4">
+                    {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-20 w-full skeleton rounded-2xl opacity-50" />)}
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    {filteredProjects.map(repo => (
+                      <div 
+                        key={repo.full_name} 
+                        onClick={() => handleRepoClick(repo)} 
+                        className={`group relative p-6 border-b border-white/[0.03] flex items-center gap-5 cursor-pointer transition-all duration-300 ${
+                          selectedRepo === repo.full_name 
+                            ? 'bg-cyan-500/10' 
+                            : 'hover:bg-white/[0.04]'
+                        }`}
+                      >
+                        {selectedRepo === repo.full_name && (
+                          <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-cyan-500 shadow-[0_0_20px_#22d3ee]" />
+                        )}
+                        
+                        <div className={`p-3 rounded-2xl transition-all duration-500 ${selectedRepo === repo.full_name ? 'bg-cyan-500 text-black' : 'bg-white/5 text-gray-500 group-hover:text-gray-300'}`}>
+                          <Box size={22} />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <h3 className={`text-sm font-black truncate tracking-tight transition-colors ${selectedRepo === repo.full_name ? 'text-white' : 'text-gray-300'}`}>
+                            {repo.full_name.split('/')[1]}
+                          </h3>
+                          <p className={`text-[11px] font-mono tracking-tighter mt-0.5 ${selectedRepo === repo.full_name ? 'text-cyan-500/70' : 'text-gray-600'}`}>
+                            {repo.full_name.split('/')[0]}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1">
+                          {repo.installation_id ? (
+                            <ShieldCheck size={18} className={selectedRepo === repo.full_name ? 'text-cyan-400' : 'text-emerald-500/40'} />
+                          ) : (
+                            <AlertCircle size={18} className="text-rose-500/40" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Panel: The Action Core */}
+            <div className="flex-1 flex flex-col items-center justify-center border border-white/5 rounded-[40px] bg-black/40 p-16 relative overflow-hidden group shadow-inner">
+              <div className="scanline" />
               
-              <div className="mt-8 text-center max-w-sm">
+              <div className="absolute inset-0 opacity-20 pointer-events-none">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-cyan-500/20 rounded-full" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-white/5 rounded-full" />
+              </div>
+
+              <div className="relative z-20 flex flex-col items-center max-w-md w-full">
+                <div className="relative mb-12">
+                  <div className={`absolute inset-0 blur-[120px] rounded-full transition-all duration-1000 scale-150 ${selectedRepo ? 'bg-cyan-500/40' : 'bg-white/5'}`}></div>
+                  
+                  <div className={`relative w-40 h-40 rounded-full border-2 flex items-center justify-center transition-all duration-700 ${selectedRepo ? 'border-cyan-500 shadow-[0_0_40px_rgba(34,211,238,0.3)] rotate-90' : 'border-white/10'}`}>
+                    <Network size={72} className={`${selectedRepo ? 'text-cyan-400 -rotate-90' : 'text-gray-800'} transition-all duration-700`} />
+                  </div>
+                </div>
+                
+                <div className="text-center space-y-4 mb-14">
+                   <h1 className="text-4xl font-black text-white tracking-tighter uppercase italic leading-none">
+                     {selectedRepo ? "Visualization Ready" : "Select Repositry"}
+                   </h1>
+                   <p className="text-xs text-gray-500 uppercase tracking-[.4em] font-bold leading-relaxed">
+                     {selectedRepo 
+                       ? `Analyzing ${selectedRepo.split('/')[1]}` 
+                       : "Initialize connection by selecting a repository"}
+                   </p>
+                </div>
+
                 <button 
                   onClick={handleProcess} 
-                  disabled={!selectedRepo || !installationId || loadingProjects} 
-                  className="bg-cyan-600 px-12 py-3 rounded text-white text-xs font-black uppercase tracking-widest disabled:opacity-20 disabled:grayscale hover:bg-cyan-500 transition-all active:scale-95 shadow-xl shadow-cyan-900/40"
+                  disabled={!selectedRepo || !installationId} 
+                  className="group/btn relative w-full flex items-center justify-center gap-5 bg-transparent border-2 border-cyan-500/50 py-6 rounded-2xl text-cyan-400 text-sm font-black uppercase tracking-[.5em] overflow-hidden transition-all hover:border-cyan-400 hover:text-white disabled:opacity-10"
                 >
-                  Analyze Repository
+                  <div className="absolute inset-0 bg-cyan-500 translate-y-[101%] group-hover/btn:translate-y-0 transition-transform duration-300" />
+                  <span className="relative z-10 flex items-center gap-4">
+                    {installationId ? "Initialize Analysis" : "Access Denied"}
+                    <ArrowRight size={20} className="group-hover/btn:translate-x-3 transition-transform" />
+                  </span>
                 </button>
 
-                <div className="h-10 mt-4">
-                  {!selectedRepo && !loadingProjects && (
-                    <p className="text-[10px] text-gray-600 uppercase tracking-tighter animate-pulse">
-                      Select a repository from the left panel to begin
-                    </p>
-                  )}
-                  
-                  {selectedRepo && (
-                    <p className="text-[11px] text-cyan-400 font-mono tracking-wider">
-                      Ready to analyze: <span className="text-white">{selectedRepo.split('/').pop()}</span>
-                    </p>
-                  )}
-                </div>
+                {selectedRepo && !installationId && (
+                  <div className="mt-10 flex items-center gap-4 bg-rose-500/10 border border-rose-500/20 px-8 py-4 rounded-2xl animate-pulse">
+                    <AlertCircle size={20} className="text-rose-500" />
+                    <span className="text-[11px] text-rose-500 font-black uppercase tracking-widest">
+                      Permissions Required: Install GitHub App
+                    </span>
+                  </div>
+                )}
               </div>
+
+              {/* Decorative Label */}
+              {/* <div className="absolute bottom-12 right-12 flex items-center gap-4 opacity-40">
+                 <span className="text-[10px] font-mono uppercase tracking-[.5em] text-white">Target Acquisition Mode</span>
+                 <div className="w-12 h-[1px] bg-white" />
+              </div> */}
             </div>
           </main>
         </div>

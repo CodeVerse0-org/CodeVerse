@@ -1,20 +1,29 @@
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { 
-  LayoutDashboard, Network, FileText, MessageSquare, History, LogOut, User 
+  Home, 
+  Network, 
+  FileText, 
+  MessageSquare, 
+  History, 
+  LogOut, 
+  User, 
+  Settings,
+  Terminal
 } from "lucide-react";
 
-const NavItem = ({ icon, label, active, onClick }) => (
-  <div 
-    onClick={onClick} 
-    className={`flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer transition-all ${
-      active 
-        ? 'bg-cyan-950/30 text-cyan-400 border border-cyan-800/20 shadow-[0_0_15px_rgba(8,145,178,0.1)]' 
-        : 'text-gray-500 hover:bg-white/5 hover:text-white'
-    }`}
+const SidebarItem = ({ icon, label, active, onClick }) => (
+  <div
+    onClick={onClick}
+    className={`flex items-center gap-4 px-5 py-4 rounded-xl cursor-pointer transition-all duration-200 group
+    ${active 
+      ? "bg-cyan-950/40 text-cyan-400 border border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.1)]" 
+      : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
   >
-    {icon} 
-    <span className="text-[13px] font-medium whitespace-nowrap">{label}</span>
+    <span className={`${active ? "text-cyan-400" : "group-hover:text-cyan-400"} transition-colors`}>
+      {React.cloneElement(icon, { size: 22 })}
+    </span> 
+    <span className="text-sm font-bold tracking-tight">{label}</span>
   </div>
 );
 
@@ -22,78 +31,102 @@ const DeveloperSidebar = ({ user, isOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isActive = (path) => {
-    if (path === "/visualization") {
-      return location.pathname.startsWith("/visualization");
-    }
-    return location.pathname === path;
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
   };
 
+  // Visibility toggle to match dashboard logic
+  if (isOpen === false) return null;
+
+  const isConnected = !!user; // Connected if user data exists
+
   return (
-    <aside 
-      className={`bg-black border-white/5 flex flex-col h-screen sticky top-0 transition-all duration-300 ease-in-out z-50 shrink-0 overflow-hidden ${
-        isOpen 
-          ? 'w-64 opacity-100 border-r' 
-          : 'w-0 opacity-0 pointer-events-none border-r-0'
-      }`}
-    >
-      {/* We wrap the content in a fixed-width container (w-64) 
-          so the text doesn't "squish" or wrap during the width transition.
-      */}
-      <div className="w-64 flex flex-col h-full">
-        <div className="p-6"> 
-          <div className="flex items-center gap-3 mb-10 text-left">
-            <div className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center bg-gray-900 overflow-hidden shrink-0">
+    <aside className="w-80 bg-[#020405] border-r border-white/5 p-8 flex flex-col justify-between h-screen sticky top-0 z-30 shadow-2xl">
+      <div>
+        {/* Profile Section - Styled like Admin */}
+        <div className="flex items-center gap-4 mb-12 p-2">
+          <div className="relative">
+            <div className="w-14 h-14 rounded-2xl bg-cyan-900/20 flex items-center justify-center border border-cyan-500/20 shadow-inner overflow-hidden">
                {user?.first_name ? (
-                 <span className="text-cyan-500 font-bold uppercase">{user.first_name[0]}</span>
+                 <span className="text-cyan-500 font-black text-xl uppercase">{user.first_name[0]}</span>
                ) : (
-                 <User size={20} className="text-gray-400" />
+                 <User className="text-cyan-500" size={28} />
                )}
             </div>
-            <div className="overflow-hidden">
-              <p className="font-bold text-sm text-white truncate">
-                {user?.first_name || "Developer"} {user?.last_name || ""}
-              </p>
-              <p className="text-[10px] text-gray-500 truncate">{user?.email || "loading..."}</p>
-            </div>
+            <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-[3px] border-[#020405] ${isConnected ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500"}`} />
           </div>
-
-          <nav className="space-y-1">
-            <p className="text-[10px] text-gray-600 uppercase font-bold mb-2 px-3 text-left tracking-wider">
-              Main Menu
+          <div className="overflow-hidden">
+            <p className="font-black text-lg truncate text-white tracking-tighter leading-tight">
+              {user?.first_name || "Developer"}
             </p>
-            <NavItem 
-              icon={<LayoutDashboard size={18} />} 
-              label="Dashboard" 
-              active={isActive("/developerDashboard")} 
-              onClick={() => navigate("/developerDashboard")} 
-            />
-            
-            <p className="text-[10px] text-gray-600 uppercase font-bold mt-6 mb-2 px-3 text-left tracking-wider">
-              Visualization Tools
-            </p>
-          
-            <NavItem 
-              icon={<Network size={18} />} 
-              label="Visualization" 
-              active={location.pathname.startsWith("/visualization")} 
-              onClick={() => navigate("/visualization/select")} 
-            />
-            <NavItem icon={<FileText size={18} />} label="File Summaries" active={isActive("/summaries")} onClick={() => navigate("/summaries")} />
-            <NavItem icon={<MessageSquare size={18} />} label="Chat Bot" active={isActive("/chatbot")} onClick={() => navigate("/chatbot")} />
-            <NavItem icon={<History size={18} />} label="History" active={isActive("/history")} onClick={() => navigate("/history")} />
-          </nav>
+            {/* <p className={`text-[10px] font-black uppercase tracking-[0.15em] ${isConnected ? "text-cyan-500/80" : "text-red-500/80"}`}>
+              {isConnected ? "Dev Mode Active" : "Offline"}
+            </p> */}
+          </div>
         </div>
 
+        {/* Navigation - Developer Routes */}
+        <nav className="space-y-3">
+          <SidebarItem 
+            icon={<Home />} 
+            label="Dashboard" 
+            active={location.pathname === "/developerDashboard"} 
+            onClick={() => navigate("/developerDashboard")} 
+          />
+          
+          <div className="pt-4 pb-2 px-5">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-600">Visualization</p>
+          </div>
+
+          <SidebarItem 
+            icon={<Network />} 
+            label="Visualization" 
+            active={location.pathname.startsWith("/visualization")} 
+            onClick={() => navigate("/visualization/select")} 
+          />
+          <SidebarItem 
+            icon={<FileText />} 
+            label="Summaries" 
+            active={location.pathname === "/summaries-page"} 
+            onClick={() => navigate("/summaries")} 
+          />
+          <SidebarItem 
+            icon={<MessageSquare />} 
+            label="Chatbot" 
+            active={location.pathname === "/chatbot"} 
+            onClick={() => navigate("/chatbot")} 
+          />
+          <SidebarItem 
+            icon={<History />} 
+            label="History" 
+            active={location.pathname === "/history"} 
+            onClick={() => navigate("/history")} 
+          />
+          <SidebarItem 
+            icon={<Settings />} 
+            label="Settings" 
+            active={location.pathname === "/developersettings"} 
+            onClick={() => navigate("/developersettings")} 
+          />
+        </nav>
+      </div>
+
+      {/* Logout / Footer Section */}
+      <div className="pb-16"> 
         <button 
-          onClick={() => { 
-              localStorage.removeItem("token"); 
-              navigate("/login"); 
-          }} 
-          className="mt-auto p-6 flex items-center gap-3 text-gray-500 hover:text-white transition-colors text-sm border-t border-white/5 w-64 active:bg-red-500/5"
+          onClick={handleLogout} 
+          className="w-full flex items-center gap-4 px-5 py-4 text-gray-500 hover:text-red-400 hover:bg-red-500/5 rounded-xl transition-all duration-300 font-bold text-sm group"
         >
-          <LogOut size={18} /> Logout
+          <LogOut size={22} className="group-hover:-translate-x-1 transition-transform" /> 
+          <span className="uppercase tracking-widest text-xs">Logout</span>
         </button>
+        
+        {/* Visual Footer Detail */}
+        <div className="mt-4 px-5 opacity-20 flex items-center gap-2">
+            <Terminal size={12} className="text-white" />
+            <div className="h-[1px] flex-1 bg-white" />
+        </div>
       </div>
     </aside>
   );

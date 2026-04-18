@@ -1,5 +1,6 @@
-# utils/security.py
 
+# utils/security.py
+from fastapi import Depends
 from passlib.context import CryptContext
 from jose import jwt, JWTError, ExpiredSignatureError
 from datetime import datetime, timedelta
