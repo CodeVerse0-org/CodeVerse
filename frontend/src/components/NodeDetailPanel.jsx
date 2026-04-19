@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Code2, X, ChevronRight, Sparkles, RefreshCw } from "lucide-react";
+import { Code2, X, ChevronRight, Sparkles, RefreshCw, AlertCircle } from "lucide-react";
 import { useReactFlow } from "@xyflow/react";
 import axios from "axios";
 import ReactMarkdown from 'react-markdown';
@@ -9,29 +9,42 @@ const NodeDetailPanel = ({ activeNode, selectedNode, setSelectedNode }) => {
   
   const [summary, setSummary] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (activeNode) {
       setSummary(""); 
+      setError(null);
       fetchSummary(false);
     }
   }, [activeNode?.id]);
 
   const fetchSummary = async (isRegenerate = false) => {
     setLoading(true);
+    setError(null);
     try {
       const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Please log in to view AI summaries.");
+        setLoading(false);
+        return;
+      }
+
       const response = await axios.post("http://localhost:8000/api/summaries/process", {
         file_path: activeNode.id,
         file_content: activeNode.data.codeSnippet,
         regenerate: isRegenerate
       }, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
+        headers: { Authorization: `Bearer ${token}` }
       });
+
       setSummary(response.data.summary);
     } catch (error) {
       console.error("Error fetching summary:", error);
-      setSummary("Failed to generate summary. Please try again.");
+      const msg = error.response?.status === 503 
+        ? "AI is busy. Please try again shortly." 
+        : "Failed to generate summary.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -78,7 +91,7 @@ const NodeDetailPanel = ({ activeNode, selectedNode, setSelectedNode }) => {
       <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
         
         {/* AI ANALYSIS SECTION */}
-        <div className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden">
+        <div className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Sparkles size={14} className="text-cyan-400" />
@@ -99,23 +112,31 @@ const NodeDetailPanel = ({ activeNode, selectedNode, setSelectedNode }) => {
               <div className="h-2 bg-white/10 rounded w-1/2"></div>
               <div className="h-2 bg-white/10 rounded w-5/6"></div>
             </div>
+          ) : error ? (
+            <div className="flex items-center gap-2 text-red-400/80 text-[11px] font-medium py-2">
+                <AlertCircle size={14} />
+                {error}
+            </div>
           ) : (
             <div className="text-[12px] leading-relaxed text-cyan-50/90 font-sans">
               <ReactMarkdown 
                 components={{
                   // Section Headers
                   strong: ({node, ...props}) => (
-                    <span className="font-bold text-cyan-400 block mt-4 mb-1 first:mt-0 uppercase tracking-wide" {...props} />
+                    <span className="font-bold text-cyan-400 block mt-5 mb-1 first:mt-0 uppercase tracking-wide text-[10px]" {...props} />
                   ),
                   // Bullet List Container
                   ul: ({node, ...props}) => (
-                    <ul className="list-disc ml-5 space-y-3 my-3 text-cyan-100/80" {...props} />
+                    <ul className="ml-2 space-y-3 my-3 text-cyan-100/80" {...props} />
                   ),
                   // Individual List Item
                   li: ({node, ...props}) => (
-                    <li className="marker:text-cyan-400" {...props} />
+                    <li className="flex gap-3 items-start" {...props}>
+                        <span className="text-cyan-500 mt-1 text-[10px]">●</span>
+                        <div className="flex-1" {...props} />
+                    </li>
                   ),
-                  // Paragraphs: CRITICAL for keeping text on the same line as the bullet
+                  // Paragraphs within the list items
                   p: ({node, ...props}) => (
                     <p className="inline m-0" {...props} />
                   )

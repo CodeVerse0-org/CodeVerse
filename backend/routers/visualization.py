@@ -11,6 +11,7 @@ from routers.github import get_installation_access_token
 from utils.dependency_parser import extract_dependencies
 from utils.function_dependency_parser import extract_function_dependencies
 from utils.function_graph_builder import build_function_graph
+from db.queries import get_all_user_summaries  # Match function name exactly
 
 router = APIRouter(prefix="/api/repos", tags=["Visualization"])
 
@@ -73,10 +74,11 @@ async def get_specific_graph_history(
 ):
     driver = request.app.state.neo4j_driver
     full_repo = f"{owner}/{repo}"
+    user_id = str(user_data.get("id")) # Security: Ensure user owns this repo
     
-    # This query finds the specific graph based on repo name and the exact timestamp clicked
+    # Updated Query: Returns 'summary' along with other node data
     query = """
-    MATCH (r:Repository {name: $repo_name})-[:HAS_GRAPH]->(g:Graph {timestamp: $timestamp, type: $type})
+    MATCH (r:Repository {name: $repo_name, user_id: $user_id})-[:HAS_GRAPH]->(g:Graph {timestamp: $timestamp, type: $type})
     OPTIONAL MATCH (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(node)
     OPTIONAL MATCH (node)-[rel:IMPORTS|CALLS]->(target)
     WHERE (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(target)
@@ -86,7 +88,8 @@ async def get_specific_graph_history(
             data: {
                 label: coalesce(node.label, node.name), 
                 content: node.content, 
-                file: node.file
+                file: node.file,
+                summary: node.summary  // <--- Retrieve the stored summary
             }
         }) as nodes,
         collect(distinct {source: node.id, target: target.id}) as edges
@@ -94,14 +97,13 @@ async def get_specific_graph_history(
     
     try:
         with driver.session() as session:
-            result = session.run(query, repo_name=full_repo, timestamp=timestamp, type=graph_type).single()
+            result = session.run(query, repo_name=full_repo, timestamp=timestamp, type=graph_type, user_id=user_id).single()
             if not result or not result["nodes"]:
                 return {"nodes": [], "dependencies": []}
             return {"nodes": result["nodes"], "dependencies": result["edges"]}
     except Exception as e:
         print(f"❌ Error loading history graph: {e}")
         raise HTTPException(status_code=500, detail="Failed to load historical graph")
-
 
 # ---------------- NEO4J FILE SYNC (STABLE BATCHED VERSION) ----------------
 def sync_to_neo4j(driver, repo_name, nodes, edges, user_id):
@@ -155,6 +157,26 @@ def sync_to_neo4j(driver, repo_name, nodes, edges, user_id):
     except Exception as e:
         print(f"❌ Neo4j File Sync Error: {e}")
 
+@router.get("/summary-history")
+async def get_summary_history(user_data: dict = Depends(get_current_user)):
+    # Ensure user_id is a string as expected by Neo4j
+    user_id = str(user_data.get("id"))
+    
+    try:
+        # 1. Fetch data from DB
+        history_list = get_all_user_summaries(user_id)
+        
+        # 2. Return the list directly. 
+        # Your latest HistoryPage.jsx is designed to handle this flat list.
+        return history_list
+
+    except Exception as e:
+        # This print will show up in your terminal to tell you exactly what failed
+        print(f"❌ ERROR in /summary-history: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal Server Error: {str(e)}"
+        )
 
 # ---------------- FUNCTION SYNC (STABLE BATCHED VERSION) ----------------
 def sync_functions_to_neo4j(driver, repo_name, graph_data, user_id):

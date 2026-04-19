@@ -76,7 +76,7 @@ const App = () => {
        <Route path="/function-visualization" element={<FunctionVisualizationPage />} />
       <Route path="/history" element={<HistoryPage />} />
       <Route path="/graph-visualizer/:repoName" element={<GraphVisualizerPage />} />
-      
+      <Route path="/visualization/:owner/:repo" element={<VisualizationPage />} />
        
       <Route path="/summaries" element={<FileSummary />} /> 
     </Routes>

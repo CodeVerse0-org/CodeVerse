@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { ReactFlow, Controls, Background, ReactFlowProvider, useReactFlow, MarkerType } from "@xyflow/react";
 import { ArrowLeft, Search, FileText } from "lucide-react";
 import "@xyflow/react/dist/style.css";
@@ -39,8 +39,15 @@ const VisualizationContent = () => {
   const { fitView } = useReactFlow();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const repoName = searchParams.get("repo");
+  
+  // --- NAVIGATION DATA ---
+  const { owner, repo } = useParams(); 
+  const queryRepo = searchParams.get("repo");
   const instId = searchParams.get("inst");
+  const timestamp = searchParams.get("timestamp");
+  const isHistory = searchParams.get("history") === "true";
+
+  const fullRepoName = (owner && repo) ? `${owner}/${repo}` : queryRepo;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [displayData, setDisplayData] = useState({ nodes: [], edges: [] });
@@ -52,12 +59,12 @@ const VisualizationContent = () => {
   const [activeFilter, setActiveFilter] = useState("all");
   const [user, setUser] = useState(null);
 
-  // SEARCH & SUGGESTIONS STATE
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  
   const worker = useMemo(() => {
     const blob = new Blob([workerCode], { type: "application/javascript" });
     return new Worker(URL.createObjectURL(blob));
@@ -99,34 +106,35 @@ const VisualizationContent = () => {
   }, [isDataReady]);
 
   const fetchGraph = useCallback(async () => {
-    if (!repoName) return;
+    if (!fullRepoName) return;
     const token = localStorage.getItem("token");
-    const timestamp = searchParams.get("timestamp");
-    const isHistory = searchParams.get("history") === "true";
 
     try {
       if (!token) {
-        console.error("No token found");
         navigate("/login");
         return;
       }
 
-      // We fetch user info, but don't 'throw' if it fails, to avoid blocking the graph
       fetch(`${API_URL}/auth/me`, { 
         headers: { Authorization: `Bearer ${token}` } 
       })
       .then(res => res.ok ? res.json() : null)
       .then(userData => { if(userData) setUser(userData); })
-      .catch(e => console.warn("Auth check failed, proceeding with graph fetch"));
+      .catch(() => {});
 
-      let endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`;
+      let endpoint;
+      let method = "POST";
 
-      if (isHistory && timestamp) {
-          endpoint = `${API_URL}/api/repos/graph-history/${encodeURIComponent(repoName)}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+      if (isHistory && timestamp && owner && repo) {
+        endpoint = `${API_URL}/api/repos/graph-history/${owner}/${repo}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+        method = "GET";
+      } else {
+        endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(fullRepoName)}&installation_id=${instId}`;
+        method = "POST";
       }
 
       const res = await fetch(endpoint, {
-        method: isHistory ? "GET" : "POST", 
+        method: method,
         headers: { 
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
@@ -157,7 +165,8 @@ const VisualizationContent = () => {
               const targetPath = d.target_full || d.target || "";
               return targetPath.includes('/') ? targetPath.split('/').pop() : targetPath;
             }),
-            codeSnippet: n.data?.content || "// No source preview available"
+            codeSnippet: n.data?.content || "// No source preview available",
+            summary: n.data?.summary || "" 
           }
         };
       });
@@ -192,7 +201,7 @@ const VisualizationContent = () => {
       setLoading(false); 
       setIsDataReady(true); 
     }
-  }, [repoName, instId, API_URL, searchParams, navigate]);
+  }, [fullRepoName, owner, repo, instId, API_URL, timestamp, isHistory, navigate]);
 
   useEffect(() => { fetchGraph(); }, [fetchGraph]);
 
@@ -215,7 +224,6 @@ const VisualizationContent = () => {
   return (
     <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
       <style>{`
-        /* 1. SCROLLBARS */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
@@ -223,7 +231,6 @@ const VisualizationContent = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.3); }
 
-        /* 2. SHARP BUBBLE TEXT */
         @keyframes float {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-10px); }
@@ -251,7 +258,6 @@ const VisualizationContent = () => {
           text-shadow: 2px 2px 2px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,0.8);
         }
 
-        /* 3. WIDE CENTERED SEARCH */
         .search-wrapper { position: relative; width: 450px; z-index: 1001; }
         .search-container {
           display: flex; align-items: center; background: rgba(0,0,0,0.85); 
@@ -302,7 +308,7 @@ const VisualizationContent = () => {
                 FILE GRAPH
               </button>
               <button
-                onClick={() => navigate(`/function-visualization?repo=${repoName}&inst=${instId}`)}
+                onClick={() => navigate(`/function-visualization?repo=${fullRepoName}&inst=${instId}`)}
                 className="px-5 py-2 text-xs font-bold bg-gray-800 rounded-lg"
               >
                 FUNCTION GRAPH
