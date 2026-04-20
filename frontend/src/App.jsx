@@ -30,7 +30,8 @@ import VisualizationPage from "./pages/VisualizationPage";
 import FunctionVisualizationPage from "./pages/FunctionVisualizationPage";
 import HistoryPage from "./pages/HistoryPage";
 import FileSummary from "./pages/FileSummary";
-
+import ChatPage from './pages/ChatPage';
+import ChatbotRepoSelectionPage from "./pages/ChatbotRepoSelectionPage";
 // Inside <Routes>
 // Settings (From Code 1)
 import Settings from "./pages/Settings";
@@ -76,9 +77,11 @@ const App = () => {
        <Route path="/function-visualization" element={<FunctionVisualizationPage />} />
       <Route path="/history" element={<HistoryPage />} />
       <Route path="/graph-visualizer/:repoName" element={<GraphVisualizerPage />} />
-      
+      <Route path="/visualization/:owner/:repo" element={<VisualizationPage />} />
        
       <Route path="/summaries" element={<FileSummary />} /> 
+      <Route path="/chatbot" element={<ChatPage />} />
+      <Route path="/chatbot-selection" element={<ChatbotRepoSelectionPage />} />
     </Routes>
   );
 };

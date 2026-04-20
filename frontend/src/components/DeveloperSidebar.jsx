@@ -94,8 +94,8 @@ const DeveloperSidebar = ({ user, isOpen }) => {
           <SidebarItem 
             icon={<MessageSquare />} 
             label="Chatbot" 
-            active={location.pathname === "/chatbot"} 
-            onClick={() => navigate("/chatbot")} 
+            active={location.pathname === "/chatbot-selection"} 
+            onClick={() => navigate("/chatbot-selection")} 
           />
           <SidebarItem 
             icon={<History />} 

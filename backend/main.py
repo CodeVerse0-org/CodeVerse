@@ -1,28 +1,38 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, email_verify, mfa, github, invite, visualization, auth_reset, users
 from db.models import Base
 from db.session import engine
 from db.connection import get_neo4j_driver
-from routers import summaries # Import your new file
 
-
-
-# Create database tables on startup
+from routers.auth import router as auth_router
+from routers.email_verify import router as email_router
+from routers.mfa import router as mfa_router
+from routers.github import router as github_router
+from routers.invite import router as invite_router
+from routers.visualization import router as visualization_router
+from routers.auth_reset import router as reset_router
+from routers.users import router as users_router
+from routers.summaries import router as summaries_router
+from routers.chatbot import router as chatbot_router
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="CodeVerse Backend")
 
 @app.on_event("startup")
-async def startup_event():
-    app.state.neo4j_driver = get_neo4j_driver()
-    print("🚀 Neo4j AuraDB Connection established")
+def startup_event():
+    try:
+        app.state.neo4j_driver = get_neo4j_driver()
+        print("✅ Neo4j connected")
+    except Exception as e:
+        print("⚠️ Neo4j not available:", e)
+        app.state.neo4j_driver = None
 
 @app.on_event("shutdown")
-async def shutdown_event():
-    if hasattr(app.state, "neo4j_driver"):
-        app.state.neo4j_driver.close()
-        print("🛑 Neo4j Connection closed")
+def shutdown_event():
+    driver = getattr(app.state, "neo4j_driver", None)
+    if driver:
+        driver.close()
+        print("🛑 Neo4j closed")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,18 +42,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ROUTER REGISTRATION
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(email_verify.router, prefix="/auth", tags=["email"])
-app.include_router(auth_reset.router, prefix="/auth", tags=["password-reset"])
-app.include_router(mfa.router, prefix="/mfa", tags=["mfa"])
-app.include_router(github.router, prefix="/api/github", tags=["github"]) 
-app.include_router(invite.router, prefix="/api/invite", tags=["invite"])
-app.include_router(visualization.router) 
-app.include_router(users.router, prefix="/api/user", tags=["users"])
+# Auth routes
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(email_router, prefix="/auth", tags=["email"])
+app.include_router(reset_router, prefix="/auth", tags=["password-reset"])
+app.include_router(mfa_router, prefix="/mfa", tags=["mfa"])
 
-app.include_router(summaries.router)
+# API routes
+app.include_router(github_router, prefix="/api/github", tags=["github"])
+app.include_router(invite_router, prefix="/api/invite", tags=["invite"])
+app.include_router(users_router, prefix="/api/user", tags=["users"])
+app.include_router(summaries_router, prefix="/api/summaries", tags=["summaries"])
+app.include_router(chatbot_router) # 2. Include the chatbot router
+# Updated: The prefix is now handled inside visualization.py via APIRouter(prefix="/api/repos")
+app.include_router(visualization_router)
 
 @app.get("/")
-async def root():
-    return {"message": "CodeVerse API is running", "status": "healthy"}
+def root():
+    return {"status": "ok", "message": "CodeVerse API running"}

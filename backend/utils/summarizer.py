@@ -1,37 +1,66 @@
 import os
+import time
 from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize the NEW client (Stable v1)
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def generate_file_summary(file_name, code_content):
-    try:
-        # The new SDK correctly routes 'gemini-1.5-flash' to the stable endpoint
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=f"Summarize this code file: {file_name}\n\nCode:\n{code_content[:15000]}"
-        )
+def generate_file_summary(file_content: str, max_retries=3):
+    if not file_content or len(file_content.strip()) < 10:
+        return "File is empty or contains no code."
 
-        if response.text:
-            return response.text.strip()
-        return "PURPOSE: Error\nFEATURES: - AI returned no content."
+    model_id = "gemini-3.1-flash-lite-preview" 
+    
+    prompt = f"""
+Analyze this code and explain it simply. 
+IMPORTANT: Use exactly two newlines between every section and every bullet point.
 
-    except Exception as e:
-        print(f"--- Gemini SDK Error ---")
-        print(str(e))
-        
-        # If 1.5-flash STILL 404s, your API key is likely restricted to 'gemini-pro'
-        if "404" in str(e):
-            try:
-                fallback = client.models.generate_content(
-                    model='gemini-pro',
-                    contents=f"Summarize this: {file_name}\n{code_content[:5000]}"
-                )
-                return fallback.text.strip()
-            except:
-                pass
-                
-        return f"PURPOSE: AI Error\nFEATURES: - {str(e)}"
+**Main Purpose:**
+(One simple sentence)
+
+**How it works:**
+
+* (Step one)
+
+* (Step two)
+
+* (Step three)
+
+**Important Notes:**
+
+* (Key detail)
+
+CODE:
+{file_content}
+"""
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt
+            )
+            
+            if response and response.text:
+                return response.text.strip()
+            
+            return "Could not generate a simple summary."
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"⚠️ Attempt {attempt + 1} failed: {e}")
+
+            # If it's a 503 (Overloaded) or 429 (Rate Limit), wait and retry
+            if any(err in error_msg for err in ["503", "unavailable", "429", "quota"]):
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # Wait 2s, then 4s
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    return "SERVICE_UNAVAILABLE_RETRY_LATER"
+            
+            # For other errors (like 404 or Auth), don't retry
+            return "Could not generate a simple summary."

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { ReactFlow, Controls, Background, ReactFlowProvider, useReactFlow, MarkerType } from "@xyflow/react";
 import { ArrowLeft, Search, FileText } from "lucide-react";
 import "@xyflow/react/dist/style.css";
@@ -39,8 +39,15 @@ const VisualizationContent = () => {
   const { fitView } = useReactFlow();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const repoName = searchParams.get("repo");
+  
+  // --- NAVIGATION DATA ---
+  const { owner, repo } = useParams(); 
+  const queryRepo = searchParams.get("repo");
   const instId = searchParams.get("inst");
+  const timestamp = searchParams.get("timestamp");
+  const isHistory = searchParams.get("history") === "true";
+
+  const fullRepoName = (owner && repo) ? `${owner}/${repo}` : queryRepo;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [displayData, setDisplayData] = useState({ nodes: [], edges: [] });
@@ -52,12 +59,12 @@ const VisualizationContent = () => {
   const [activeFilter, setActiveFilter] = useState("all");
   const [user, setUser] = useState(null);
 
-  // SEARCH & SUGGESTIONS STATE
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  
   const worker = useMemo(() => {
     const blob = new Blob([workerCode], { type: "application/javascript" });
     return new Worker(URL.createObjectURL(blob));
@@ -97,57 +104,104 @@ const VisualizationContent = () => {
       return () => clearTimeout(timer);
     }
   }, [isDataReady]);
+
   const fetchGraph = useCallback(async () => {
-    if (!repoName) return;
+    if (!fullRepoName) return;
     const token = localStorage.getItem("token");
-    const timestamp = searchParams.get("timestamp");
-    const isHistory = searchParams.get("history");
 
     try {
-      const userRes = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
-      if (userRes.ok) setUser(await userRes.json());
+      if (!token) {
+        navigate("/login");
+        return;
+      }
 
-      // DECIDE ENDPOINT: New Generation vs. History Retrieval
-      let endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(repoName)}&installation_id=${instId}`;
-      if (isHistory && timestamp) {
-          endpoint = `${API_URL}/api/repos/graph-history/${encodeURIComponent(repoName)}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+      fetch(`${API_URL}/auth/me`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      })
+      .then(res => res.ok ? res.json() : null)
+      .then(userData => { if(userData) setUser(userData); })
+      .catch(() => {});
+
+      let endpoint;
+      let method = "POST";
+
+      if (isHistory && timestamp && owner && repo) {
+        endpoint = `${API_URL}/api/repos/graph-history/${owner}/${repo}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
+        method = "GET";
+      } else {
+        endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(fullRepoName)}&installation_id=${instId}`;
+        method = "POST";
       }
 
       const res = await fetch(endpoint, {
-        method: isHistory ? "GET" : "POST", // History uses GET, Generation uses POST
-        headers: { Authorization: `Bearer ${token}` }
+        method: method,
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
       });
+
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      
+      if (!res.ok) throw new Error(`Server Error: ${res.status}`);
       
       const data = await res.json();
       
-      // ... (Keep the existing mapping logic for 'nodes' and 'edges' from your displayData) ...
-      const nodes = (data.nodes || []).map(n => ({
-        id: n.id, type: 'bubble',
-        data: { 
-          label: n.data.label.split('/').pop(),
-          fullName: n.data.label,
-          category: n.id.toLowerCase().includes('backend') ? 'backend' : 'frontend',
-          imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => d.target_full.split('/').pop()),
-          codeSnippet: n.data.content || "// No source preview available"
-        }
-      }));
-      const edges = (data.dependencies || []).map((dep, idx) => {
-        const color = dep.source.toLowerCase().includes("backend") ? '#fb7185' : '#22d3ee';
+      const nodes = (data.nodes || []).map(n => {
+        const rawLabel = n.data?.label || n.id || "unknown";
+        const cleanLabel = rawLabel.includes('/') ? rawLabel.split('/').pop() : rawLabel;
+
         return {
-          id: `e-${idx}`, source: dep.source, target: dep.target_full, label: "IMPORTS", animated: true,
-          labelStyle: { fill: color, fontWeight: 900, fontSize: 7, textTransform: 'uppercase', letterSpacing: '1.5px' },
-          labelBgPadding: [6, 4], labelBgBorderRadius: 2,
-          labelBgStyle: { fill: '#000', fillOpacity: 1, stroke: color, strokeWidth: 1 },
+          id: String(n.id), 
+          type: 'bubble',
+          data: { 
+            label: cleanLabel,
+            fullName: rawLabel,
+            category: String(n.id).toLowerCase().includes('backend') ? 'backend' : 'frontend',
+            imports: (data.dependencies || []).filter(d => d.source === n.id).map(d => {
+              const targetPath = d.target_full || d.target || "";
+              return targetPath.includes('/') ? targetPath.split('/').pop() : targetPath;
+            }),
+            codeSnippet: n.data?.content || "// No source preview available",
+            summary: n.data?.summary || "" 
+          }
+        };
+      });
+
+      const edges = (data.dependencies || []).map((dep, idx) => {
+        const sId = String(dep.source);
+        const tId = String(dep.target_full || dep.target);
+        const color = sId.toLowerCase().includes("backend") ? '#fb7185' : '#22d3ee';
+
+        return {
+          id: `e-${idx}`, 
+          source: sId, 
+          target: tId, 
+          label: "IMPORTS", 
+          animated: true,
+          labelStyle: { fill: color, fontWeight: 900, fontSize: 7, textTransform: 'uppercase' },
           style: { stroke: color, strokeWidth: 2, opacity: 0.8 },
           markerEnd: { type: MarkerType.ArrowClosed, color: color, width: 15, height: 15 }
         };
+      }).filter(edge => {
+        return nodes.some(n => n.id === edge.source) && nodes.some(n => n.id === edge.target);
       });
+
       setRawGraphData({ nodes, edges });
+      
+      if (nodes.length === 0) {
+        setLoading(false);
+        setIsDataReady(true);
+      }
     } catch (err) { 
+      console.error("Graph Data Load Failed:", err);
       setLoading(false); 
+      setIsDataReady(true); 
     }
-}, [repoName, instId, API_URL, searchParams]);
-  
+  }, [fullRepoName, owner, repo, instId, API_URL, timestamp, isHistory, navigate]);
 
   useEffect(() => { fetchGraph(); }, [fetchGraph]);
 
@@ -170,7 +224,6 @@ const VisualizationContent = () => {
   return (
     <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden">
       <style>{`
-        /* 1. SCROLLBARS */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
@@ -178,7 +231,6 @@ const VisualizationContent = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.3); }
 
-        /* 2. SHARP BUBBLE TEXT */
         @keyframes float {
           0%, 100% { transform: translateY(0px); }
           50% { transform: translateY(-10px); }
@@ -206,7 +258,6 @@ const VisualizationContent = () => {
           text-shadow: 2px 2px 2px rgba(0,0,0,1), 0 0 4px rgba(0,0,0,0.8);
         }
 
-        /* 3. WIDE CENTERED SEARCH */
         .search-wrapper { position: relative; width: 450px; z-index: 1001; }
         .search-container {
           display: flex; align-items: center; background: rgba(0,0,0,0.85); 
@@ -252,24 +303,17 @@ const VisualizationContent = () => {
 
           <header className="h-20 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl z-20">
             <div className="flex-1"></div>
-<div className="absolute top-4 right-6 z-20 flex gap-3">
-
-  <button
-    className="px-5 py-2 text-xs font-bold bg-cyan-500 text-black rounded-lg"
-  >
-    FILE GRAPH
-  </button>
-
-  <button
-    onClick={() =>
-      navigate(`/function-visualization?repo=${repoName}&inst=${instId}`)
-    }
-    className="px-5 py-2 text-xs font-bold bg-gray-800 rounded-lg"
-  >
-    FUNCTION GRAPH
-  </button>
-
-</div>
+            <div className="absolute top-4 right-6 z-20 flex gap-3">
+              <button className="px-5 py-2 text-xs font-bold bg-cyan-500 text-black rounded-lg">
+                FILE GRAPH
+              </button>
+              <button
+                onClick={() => navigate(`/function-visualization?repo=${fullRepoName}&inst=${instId}`)}
+                className="px-5 py-2 text-xs font-bold bg-gray-800 rounded-lg"
+              >
+                FUNCTION GRAPH
+              </button>
+            </div>
             {!loading && (
               <div className="search-wrapper" ref={searchRef}>
                 <div className="search-container">

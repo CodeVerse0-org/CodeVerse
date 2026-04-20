@@ -1,94 +1,233 @@
 import httpx
 import base64
 import os
+import json
+import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from routers.auth import get_current_user 
+
+from routers.auth import get_current_user
 from routers.github import get_installation_access_token
 from utils.dependency_parser import extract_dependencies
 from utils.function_dependency_parser import extract_function_dependencies
 from utils.function_graph_builder import build_function_graph
+from db.queries import get_all_user_summaries  # Match function name exactly
 
 router = APIRouter(prefix="/api/repos", tags=["Visualization"])
 
 IGNORE_DIRS = {"node_modules", "venv", ".git", "__pycache__", "dist", "build", "target"}
-SUPPORTED_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx"}
+SUPPORTED_EXTENSIONS = {".js", ".jsx", ".ts", ".tsx", ".py"}
 
-# --- NEO4J SYNC: FILE LEVEL ---
-def sync_to_neo4j(driver, repo_name, nodes, edges):
-    if not driver: return
-    timestamp = datetime.now().isoformat()
+
+# ---------------- SAFE SANITIZER ----------------
+def force_scalar(val, max_len=20000):
+    if val is None:
+        return ""
+    if isinstance(val, (dict, list)):
+        try:
+            val = json.dumps(val)
+        except Exception:
+            val = str(val)
+    try:
+        val = str(val)
+    except Exception:
+        return ""
+    return val[:max_len]
+
+
+# ---------------- GET HISTORY LIST ----------------
+@router.get("/history")
+async def get_history(
+    request: Request,
+    user_data: dict = Depends(get_current_user)
+):
+    driver = request.app.state.neo4j_driver
+    if not driver:
+        raise HTTPException(status_code=500, detail="Neo4j driver not initialized")
+
+    user_id = str(user_data.get("id"))
+    
+    query = """
+    MATCH (r:Repository {user_id: $user_id})-[:HAS_GRAPH]->(g:Graph)
+    RETURN g.id AS id, r.name AS repo_name, g.timestamp AS timestamp, g.type AS graph_type
+    ORDER BY g.timestamp DESC
+    """
+    
     try:
         with driver.session() as session:
-            # Create a unique Graph Snapshot node
-            session.run("""
-                MERGE (r:Repository {name: $repo_name})
-                CREATE (g:Graph {id: apoc.create.uuid(), timestamp: $time, type: 'file'})
-                MERGE (r)-[:HAS_GRAPH]->(g)
-                WITH g
-                UNWIND $nodes as node
-                CREATE (f:File {id: node.id, label: node.data.label, content: node.data.content})
-                MERGE (g)-[:HAS_FILE]->(f)
-            """, repo_name=repo_name, time=timestamp, nodes=nodes)
+            result = session.run(query, user_id=user_id)
+            return [dict(record) for record in result]
+    except Exception as e:
+        print(f"❌ Error fetching history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch history")
 
-            # Create Relationships within that specific snapshot
+
+# ---------------- GET SPECIFIC HISTORY (MATCHES FRONTEND 404 URL) ----------------
+@router.get("/graph-history/{owner}/{repo}")
+async def get_specific_graph_history(
+    owner: str,
+    repo: str,
+    request: Request,
+    timestamp: str = Query(...),
+    graph_type: str = Query("file"),
+    user_data: dict = Depends(get_current_user)
+):
+    driver = request.app.state.neo4j_driver
+    full_repo = f"{owner}/{repo}"
+    user_id = str(user_data.get("id")) # Security: Ensure user owns this repo
+    
+    # Updated Query: Returns 'summary' along with other node data
+    query = """
+    MATCH (r:Repository {name: $repo_name, user_id: $user_id})-[:HAS_GRAPH]->(g:Graph {timestamp: $timestamp, type: $type})
+    OPTIONAL MATCH (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(node)
+    OPTIONAL MATCH (node)-[rel:IMPORTS|CALLS]->(target)
+    WHERE (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(target)
+    RETURN 
+        collect(distinct {
+            id: node.id, 
+            data: {
+                label: coalesce(node.label, node.name), 
+                content: node.content, 
+                file: node.file,
+                summary: node.summary  // <--- Retrieve the stored summary
+            }
+        }) as nodes,
+        collect(distinct {source: node.id, target: target.id}) as edges
+    """
+    
+    try:
+        with driver.session() as session:
+            result = session.run(query, repo_name=full_repo, timestamp=timestamp, type=graph_type, user_id=user_id).single()
+            if not result or not result["nodes"]:
+                return {"nodes": [], "dependencies": []}
+            return {"nodes": result["nodes"], "dependencies": result["edges"]}
+    except Exception as e:
+        print(f"❌ Error loading history graph: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load historical graph")
+
+# ---------------- NEO4J FILE SYNC (STABLE BATCHED VERSION) ----------------
+def sync_to_neo4j(driver, repo_name, nodes, edges, user_id):
+    if not driver: return
+    timestamp = datetime.now().isoformat()
+    user_id_str = force_scalar(user_id)
+    graph_id = str(uuid.uuid4())
+
+    try:
+        with driver.session() as session:
+            # 1. Root Setup
             session.run("""
-                MATCH (g:Graph {timestamp: $time})<-[:HAS_GRAPH]-(r:Repository {name: $repo_name})
-                UNWIND $edges as edge
-                MATCH (g)-[:HAS_FILE]->(source:File {id: edge.source})
-                MATCH (g)-[:HAS_FILE]->(target:File {id: edge.target_full})
-                MERGE (source)-[:IMPORTS]->(target)
-            """, repo_name=repo_name, time=timestamp, edges=edges)
-            print(f"✅ Neo4j: File Graph snapshot stored for {repo_name}")
+                MERGE (r:Repository {name: $repo_name, user_id: $user_id})
+                CREATE (g:Graph {id: $graph_id, timestamp: $time, type: 'file'})
+                MERGE (r)-[:HAS_GRAPH]->(g)
+            """, repo_name=force_scalar(repo_name), user_id=user_id_str, time=timestamp, graph_id=graph_id)
+
+            # 2. Batched Nodes (Fixes SSLEOFError)
+            batch_size = 25 
+            for i in range(0, len(nodes), batch_size):
+                batch = nodes[i : i + batch_size]
+                session.run("""
+                    MATCH (g:Graph {id: $graph_id})
+                    UNWIND $batch_nodes as node
+                    CREATE (f:File {
+    id: node.id,
+    path: node.id,
+    label: node.label,
+    content: node.content
+})
+                    MERGE (g)-[:HAS_FILE]->(f)
+                """, graph_id=graph_id, batch_nodes=[{
+                    "id": force_scalar(n.get("id")),
+                    "label": force_scalar(n.get("data", {}).get("label")),
+                    "content": force_scalar(n.get("data", {}).get("content"))
+                } for n in batch])
+
+            # 3. Batched Edges
+            for i in range(0, len(edges), batch_size):
+                batch = edges[i : i + batch_size]
+                session.run("""
+                    MATCH (g:Graph {id: $graph_id})
+                    UNWIND $batch_edges as edge
+                    MATCH (g)-[:HAS_FILE]->(source:File {id: edge.source})
+                    MATCH (g)-[:HAS_FILE]->(target:File {id: edge.target})
+                    MERGE (source)-[:IMPORTS]->(target)
+                """, graph_id=graph_id, batch_edges=[{
+                    "source": force_scalar(e.get("source")),
+                    "target": force_scalar(e.get("target_full") or e.get("target"))
+                } for e in batch])
     except Exception as e:
         print(f"❌ Neo4j File Sync Error: {e}")
 
-# --- NEO4J SYNC: FUNCTION LEVEL ---
-def sync_functions_to_neo4j(driver, repo_name, graph_data):
-    if not driver: return
+@router.get("/summary-history")
+async def get_summary_history(user_data: dict = Depends(get_current_user)):
+    # Ensure user_id is a string as expected by Neo4j
+    user_id = str(user_data.get("id"))
+    
+    try:
+        # 1. Fetch data from DB
+        history_list = get_all_user_summaries(user_id)
+        
+        # 2. Return the list directly. 
+        # Your latest HistoryPage.jsx is designed to handle this flat list.
+        return history_list
 
-    # Capture nodes and real edges (checking multiple possible keys)
+    except Exception as e:
+        # This print will show up in your terminal to tell you exactly what failed
+        print(f"❌ ERROR in /summary-history: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal Server Error: {str(e)}"
+        )
+
+# ---------------- FUNCTION SYNC (STABLE BATCHED VERSION) ----------------
+def sync_functions_to_neo4j(driver, repo_name, graph_data, user_id):
+    if not driver: return
     nodes = graph_data.get("nodes", [])
-    edges = graph_data.get("links") or graph_data.get("edges") or graph_data.get("dependencies") or []
+    edges = graph_data.get("links") or graph_data.get("edges") or []
     timestamp = datetime.now().isoformat()
+    user_id_str = force_scalar(user_id)
+    graph_id = str(uuid.uuid4())
 
     try:
         with driver.session() as session:
-            # 1. Create the Graph Snapshot and Function Nodes
             session.run("""
-                MERGE (r:Repository {name: $repo_name})
-                CREATE (g:Graph {
-                    id: randomUUID(), 
-                    timestamp: $time, 
-                    type: 'function'
-                })
+                MERGE (r:Repository {name: $repo_name, user_id: $user_id})
+                CREATE (g:Graph {id: $graph_id, timestamp: $time, type: 'function'})
                 MERGE (r)-[:HAS_GRAPH]->(g)
-                WITH g
-                UNWIND $nodes as node
-                CREATE (f:Function {
-                    id: node.id, 
-                    name: node.data.label, 
-                    file: node.data.file, 
-                    content: node.data.content
-                })
-                MERGE (g)-[:CONTAINS_FUNCTION]->(f)
-            """, repo_name=repo_name, time=timestamp, nodes=nodes)
+            """, repo_name=force_scalar(repo_name), user_id=user_id_str, time=timestamp, graph_id=graph_id)
 
-            # 2. Link Real Edges (CALLS)
-            if edges:
+            batch_size = 50
+            for i in range(0, len(nodes), batch_size):
+                batch = nodes[i : i + batch_size]
                 session.run("""
-                    MATCH (g:Graph {timestamp: $time})<-[:HAS_GRAPH]-(r:Repository {name: $repo_name})
-                    UNWIND $edges as edge
-                    MATCH (g)-[:CONTAINS_FUNCTION]->(caller:Function {id: edge.source})
-                    MATCH (g)-[:CONTAINS_FUNCTION]->(callee:Function)
-                    WHERE callee.id = edge.target_full 
-                       OR callee.id = edge.target 
-                       OR callee.name = edge.target
-                    MERGE (caller)-[:CALLS]->(callee)
-                """, repo_name=repo_name, time=timestamp, edges=edges)
-                print(f"✅ Neo4j: {len(edges)} real function calls stored.")
+                    MATCH (g:Graph {id: $graph_id})
+                    UNWIND $batch as node
+                    CREATE (f:Function {id: node.id, name: node.name, file: node.file, content: node.content})
+                    MERGE (g)-[:CONTAINS_FUNCTION]->(f)
+                """, graph_id=graph_id, batch=[{
+                    "id": force_scalar(n.get("id")),
+                    "name": force_scalar(n.get("data", {}).get("label")),
+                    "file": force_scalar(n.get("data", {}).get("file")),
+                    "content": force_scalar(n.get("data", {}).get("content"))
+                } for n in batch])
+
+            if edges:
+                for i in range(0, len(edges), batch_size):
+                    batch = edges[i : i + batch_size]
+                    session.run("""
+                        MATCH (g:Graph {id: $graph_id})
+                        UNWIND $batch as edge
+                        MATCH (g)-[:CONTAINS_FUNCTION]->(caller:Function {id: edge.source})
+                        MATCH (g)-[:CONTAINS_FUNCTION]->(callee:Function {id: edge.target})
+                        MERGE (caller)-[:CALLS]->(callee)
+                    """, graph_id=graph_id, batch=[{
+                        "source": force_scalar(e.get("source")),
+                        "target": force_scalar(e.get("target_full") or e.get("target"))
+                    } for e in batch])
     except Exception as e:
         print(f"❌ Neo4j Function Sync Error: {e}")
+
+
+# ---------------- PATH RESOLVER ----------------
 def resolve_github_path(current_file, import_string, all_files):
     import_string = import_string.strip("'\"")
     if import_string.startswith("."):
@@ -96,164 +235,42 @@ def resolve_github_path(current_file, import_string, all_files):
         joined = os.path.normpath(os.path.join(base_dir, import_string)).replace("\\", "/")
         if joined in all_files: return joined
         for ext in SUPPORTED_EXTENSIONS:
-            potential = f"{joined}{ext}"
-            if potential in all_files: return potential
-        for ext in SUPPORTED_EXTENSIONS:
-            potential_index = f"{joined}/index{ext}"
-            if potential_index in all_files: return potential_index
+            if f"{joined}{ext}" in all_files: return f"{joined}{ext}"
     return None
+
+
+# ---------------- FILE GRAPH GENERATION ----------------
 @router.post("/generate-graph")
 async def generate_graph(
-    request: Request,
-    full_repo: str = Query(...),
-    installation_id: int = Query(...),
-    user_data: dict = Depends(get_current_user) 
-):
-    token = get_installation_access_token(installation_id)
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
-
-    async with httpx.AsyncClient() as client:
-        tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
-        resp = await client.get(tree_url, headers=headers)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail="Failed to fetch repo tree")
-
-        items = resp.json().get("tree", [])
-        file_paths = [i["path"] for i in items if not any(d in i["path"].split("/") for d in IGNORE_DIRS) and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
-
-        nodes, edges = [], []
-        for path in file_paths:
-            content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
-            c_resp = await client.get(content_url, headers=headers)
-            if c_resp.status_code == 200:
-                content_data = c_resp.json()
-                raw_code = base64.b64decode(content_data["content"]).decode("utf-8")
-                nodes.append({"id": path, "data": {"label": path.split("/")[-1], "content": raw_code}})
-                found_deps = extract_dependencies(raw_code)
-                for dep in found_deps:
-                    resolved_path = resolve_github_path(path, dep, file_paths)
-                    if resolved_path:
-                        edges.append({"source": path, "target_full": resolved_path})
-
-        sync_to_neo4j(request.app.state.neo4j_driver, full_repo, nodes, edges)
-        return {"nodes": nodes, "dependencies": edges}
-
-@router.post("/generate-function-graph")
-async def generate_function_graph(
     request: Request,
     full_repo: str = Query(...),
     installation_id: int = Query(...),
     user_data: dict = Depends(get_current_user)
 ):
     token = get_installation_access_token(installation_id)
+    user_id = user_data.get("id")
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
-    async with httpx.AsyncClient() as client:
-        # 1. Get Repo Tree
-        tree_resp = await client.get(f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1", headers=headers)
-        if tree_resp.status_code != 200: raise HTTPException(status_code=400, detail="Repo tree fetch failed")
-        
-        items = tree_resp.json().get("tree", [])
-        file_paths = [i["path"] for i in items if not any(d in i["path"].split("/") for d in IGNORE_DIRS) and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
+        resp = await client.get(tree_url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="Failed repo fetch")
 
-        all_functions, all_calls = [], []
-        
-        # 2. Parse Files for REAL Definitions and Calls
+        items = resp.json().get("tree", [])
+        file_paths = [i["path"] for i in items if not any(d in i["path"].split("/") for d in IGNORE_DIRS) 
+                      and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
+
+        nodes, edges = [], []
         for path in file_paths:
-            c_resp = await client.get(f"https://api.github.com/repos/{full_repo}/contents/{path}", headers=headers)
-            if c_resp.status_code != 200: continue
-            
-            raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8")
-            funcs, calls = extract_function_dependencies(raw_code, path)
-            all_functions.extend(funcs)
-            all_calls.extend(calls)
+            content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
+            c_resp = await client.get(content_url, headers=headers)
+            if c_resp.status_code == 200:
+                raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8", errors="ignore")
+                nodes.append({"id": path, "data": {"label": path.split("/")[-1], "content": raw_code}})
+                for dep in extract_dependencies(raw_code):
+                    resolved = resolve_github_path(path, dep, file_paths)
+                    if resolved: edges.append({"source": path, "target_full": resolved})
 
-        # 3. Build Graph and Sync Real Data
-        graph = build_function_graph(all_functions, all_calls)
-        sync_functions_to_neo4j(request.app.state.neo4j_driver, full_repo, graph)
-        
-        return graph
-# ===============================
-# 📜 HISTORY API
-# ===============================
-@router.get("/history")
-async def get_history(request: Request):
-    driver = request.app.state.neo4j_driver
-    with driver.session() as session:
-        result = session.run("""
-            MATCH (r:Repository)-[:HAS_GRAPH]->(g:Graph)
-            RETURN r.name AS repo, g.timestamp AS time, g.type AS type, g.id AS id
-            ORDER BY g.timestamp DESC
-        """)
-        return [{
-            "id": r["id"],
-            "repo_name": r["repo"],
-            "timestamp": r["time"],
-            "graph_type": r["type"]
-        } for r in result]
-
-# ===============================
-# 📊 FETCH GRAPH BY TIMESTAMP
-# ===============================
-# --- FETCH SPECIFIC SNAPSHOT ---
-# Added :path to repo_name to handle slashes in GitHub repo names
-# --- FETCH SPECIFIC SNAPSHOT ---
-@router.get("/graph-history/{repo_name:path}")
-async def get_stored_graph(repo_name: str, timestamp: str, graph_type: str = "file", request: Request = None):
-    driver = request.app.state.neo4j_driver
-    with driver.session() as session:
-        if graph_type == "function":
-            # Fetch nodes from snapshot
-            nodes_res = session.run("""
-                MATCH (r:Repository {name: $repo})-[:HAS_GRAPH]->(g:Graph)
-                WHERE g.timestamp CONTAINS $time AND g.type = 'function'
-                MATCH (g)-[:CONTAINS_FUNCTION]->(f)
-                RETURN f
-            """, repo=repo_name, time=timestamp)
-            
-            # Fetch real edges from snapshot
-            edges_res = session.run("""
-                MATCH (r:Repository {name: $repo})-[:HAS_GRAPH]->(g:Graph)
-                WHERE g.timestamp CONTAINS $time AND g.type = 'function'
-                MATCH (g)-[:CONTAINS_FUNCTION]->(s)-[:CALLS]->(t)
-                RETURN s.id AS source, t.id AS target_full
-            """, repo=repo_name, time=timestamp)
-
-            nodes = [{"id": n["f"]["id"], "data": {"label": n["f"]["name"], "content": n["f"].get("content", "")}} for n in nodes_res]
-            edges = [{"source": e["source"], "target_full": e["target_full"]} for e in edges_res]
-            
-            return {"nodes": nodes, "dependencies": edges}
-            # ... process results as usual ...
-        else:
-    # --- FILE LEVEL HISTORY ---
-            nodes_q = """
-        MATCH (r:Repository {name: $repo})-[:HAS_GRAPH]->(g:Graph)
-        WHERE g.timestamp CONTAINS $time AND g.type = 'file'
-        MATCH (g)-[:HAS_FILE]->(f)
-        RETURN f
-    """
-            edges_q = """
-        MATCH (r:Repository {name: $repo})-[:HAS_GRAPH]->(g:Graph)
-        WHERE g.timestamp CONTAINS $time AND g.type = 'file'
-        MATCH (g)-[:HAS_FILE]->(s)-[:IMPORTS]->(t)
-        RETURN s.id AS source, t.id AS target_full  // Added _full here
-    """
-
-        nodes_raw = session.run(nodes_q, repo=repo_name, time=timestamp).data()
-        edges_raw = session.run(edges_q, repo=repo_name, time=timestamp).data()
-
-    if not nodes_raw:
-        raise HTTPException(status_code=404, detail="Snapshot not found")
-
-    # Map nodes and ensure labels/content are captured
-    nodes = [{
-        "id": n["f"]["id"], 
-        "data": {
-            "label": n["f"].get("name") or n["f"].get("label"), 
-            "file": n["f"].get("file"),
-            "content": n["f"].get("content")
-        }
-    } for n in nodes_raw]
-    
-    # Return as 'dependencies' so the frontend mapping catches it
-    return {"nodes": nodes, "dependencies": edges_raw}
+        sync_to_neo4j(request.app.state.neo4j_driver, full_repo, nodes, edges, user_id)
+        return {"nodes": nodes, "dependencies": edges}
