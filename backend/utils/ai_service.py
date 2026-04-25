@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import HumanMessage, AIMessage  # ✅ Added for formatting
+from langchain_core.messages import HumanMessage, AIMessage 
 from typing import Any, Dict, List
 
 load_dotenv()
@@ -68,6 +68,14 @@ def load_repo_files(repo_path):
     return documents
 
 async def process_chat_message(repo_name: str, message: str, history=None):
+
+    # ✅ GREETING CHECK (NEW)
+    simple_greetings = ["hi", "hello", "hey", "salam", "assalamualaikum"]
+    clean_msg = message.strip().lower()
+
+    if clean_msg in simple_greetings:
+        return "👋 Hello! How can I assist you today?"
+
     repo_folder = repo_name.replace("/", "_")
     repo_path = f"./temp_repos/{repo_folder}"
     persist_db_path = f"./db/free_vector_{repo_folder}"

@@ -56,7 +56,6 @@ app.include_router(summaries_router, prefix="/api/summaries", tags=["summaries"]
 app.include_router(chatbot_router) # 2. Include the chatbot router
 # Updated: The prefix is now handled inside visualization.py via APIRouter(prefix="/api/repos")
 app.include_router(visualization_router)
-
 @app.get("/")
 def root():
     return {"status": "ok", "message": "CodeVerse API running"}

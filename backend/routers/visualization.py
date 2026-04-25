@@ -11,6 +11,8 @@ from routers.github import get_installation_access_token
 from utils.dependency_parser import extract_dependencies
 from utils.function_dependency_parser import extract_function_dependencies
 from utils.function_graph_builder import build_function_graph
+from utils.state_dependency_parser import extract_state_dependencies
+from utils.state_graph_builder import build_state_graph
 from db.queries import get_all_user_summaries  # Match function name exactly
 
 router = APIRouter(prefix="/api/repos", tags=["Visualization"])
@@ -244,20 +246,34 @@ def resolve_github_path(current_file, import_string, all_files):
 async def generate_graph(
     request: Request,
     full_repo: str = Query(...),
-    installation_id: int = Query(...),
+    installation_id: int | None = Query(None),
     user_data: dict = Depends(get_current_user)
 ):
-    token = get_installation_access_token(installation_id)
+    # Determine token: Use installation token if available, otherwise fallback to public/env token
+    if installation_id and installation_id != 0:
+        if installation_id:
+            token = get_installation_access_token(installation_id)
+        else:
+            token = os.getenv("GITHUB_TOKEN")  # for public repos
+    else:
+        # Fallback to a personal access token or skip for strictly public repos
+        token = os.getenv("GITHUB_TOKEN") 
+    
     user_id = user_data.get("id")
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
         resp = await client.get(tree_url, headers=headers)
+        
         if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail="Failed repo fetch")
+             # If public repo fails, it might need a token or the repo name is wrong
+             raise HTTPException(status_code=resp.status_code, detail=f"GitHub Error: {resp.text}")
 
         items = resp.json().get("tree", [])
+        # ... rest of your existing parsing logic ...
         file_paths = [i["path"] for i in items if not any(d in i["path"].split("/") for d in IGNORE_DIRS) 
                       and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
 
@@ -274,3 +290,50 @@ async def generate_graph(
 
         sync_to_neo4j(request.app.state.neo4j_driver, full_repo, nodes, edges, user_id)
         return {"nodes": nodes, "dependencies": edges}
+
+@router.post("/generate-state-graph")
+async def generate_state_graph(
+    request: Request,
+    full_repo: str = Query(...),
+    user_data: dict = Depends(get_current_user)
+):
+    print(f"🔥 STATE GRAPH API CALLED FOR: {full_repo}")
+    token = os.getenv("GITHUB_TOKEN")
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        # 1. Fetch File Tree
+        tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
+        resp = await client.get(tree_url, headers=headers)
+        
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="GitHub Error")
+
+        items = resp.json().get("tree", [])
+        # Filter for React/JS files
+        file_paths = [
+            i["path"] for i in items 
+            if i["path"].endswith((".js", ".jsx", ".ts", ".tsx")) 
+            and not any(x in i["path"] for x in ["node_modules", "dist", "build"])
+        ]
+
+        files_data = []
+        for path in file_paths:
+            content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
+            c_resp = await client.get(content_url, headers=headers)
+            
+            if c_resp.status_code == 200:
+                raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8", errors="ignore")
+                # Extract state (Redux, Props, Context)
+                state_deps = extract_state_dependencies(raw_code)
+                if state_deps: # Only include files that actually use state/props
+                    files_data.append({
+                        "path": path,
+                        "state_dependencies": state_deps
+                    })
+
+        # 2. Build the Graph
+        graph = build_state_graph(files_data)
+        return graph

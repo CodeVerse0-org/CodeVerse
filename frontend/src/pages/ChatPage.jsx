@@ -1,99 +1,166 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom"; // Added useNavigate
-import { 
-  Send, MessageSquare, Plus, Terminal, Cpu, Trash2, 
-  Layers, Zap, Globe, ChevronDown 
-} from "lucide-react"; // Added Globe and ChevronDown
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Send, Plus, Zap, MessageSquare, Code, Terminal, Cpu, Trash2, ArrowLeftRight } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import DeveloperNavbar from "../components/DeveloperNavbar";
 
 const ChatPage = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate(); // Initialize navigate
-  const repoName = searchParams.get("repo");
+  const navigate = useNavigate();
+  const repoName = searchParams.get("repo") || "";
   const instId = searchParams.get("inst");
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const userId = "rida_fatima_01";
+
+  const [sessionId, setSessionId] = useState("");
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
+
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const scrollRef = useRef(null);
 
-  const storageKey = `chatHistory_${repoName}`;
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  // Error state for missing repo
-  if (!repoName) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#020405] text-gray-400 relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-cyan-500/5 blur-[120px] rounded-full" />
-        <div className="text-center space-y-6 z-10">
-          <div className="w-20 h-20 mx-auto bg-white/[0.02] border border-white/5 rounded-3xl flex items-center justify-center shadow-2xl">
-            <Terminal size={40} className="text-cyan-500" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-black text-white tracking-tight">No Repository Active</h2>
-            <p className="text-sm text-gray-500 max-w-[250px] mx-auto leading-relaxed">
-              Connect a codebase via the dashboard to initialize AI analysis.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Load chats on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setChats(parsed);
-      if (parsed.length > 0) setActiveChatId(parsed.id);
-    } else {
-      const newChat = { id: Date.now(), title: "New Analysis", messages: [] };
-      setChats([newChat]);
-      setActiveChatId(newChat.id);
-    }
-  }, [repoName, storageKey]);
-
-  // Save chats on change
-  useEffect(() => {
-    if (chats.length > 0) {
-      localStorage.setItem(storageKey, JSON.stringify(chats));
-    }
-  }, [chats, storageKey]);
-
-  // Auto scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chats, isTyping]);
-
-  const activeChat = chats.find(c => c.id === activeChatId);
+  const activeChat = chats.find((c) => c.id === activeChatId);
   const messages = activeChat?.messages || [];
 
+  // ===========================
+  // FETCH HISTORY
+  // ===========================
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!repoName) return;
+
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(
+          `${API_URL}/api/chat/history/${userId}/${encodeURIComponent(repoName)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        const data = await res.json();
+
+        if (data.sessions && data.sessions.length > 0) {
+          const sessionMap = new Map();
+
+          data.sessions.forEach((session) => {
+            if (sessionMap.has(session.sessionId)) return;
+
+            const historyText = session.history || "";
+            const messageBlocks = historyText.split(/(?=User: |Assistant: )/g);
+
+            const sessionMessages = messageBlocks
+              .map((block) => {
+                if (block.startsWith("User: ")) {
+                  return {
+                    role: "user",
+                    content: block.replace("User: ", "").trim(),
+                  };
+                }
+                if (block.startsWith("Assistant: ")) {
+                  return {
+                    role: "assistant",
+                    content: block.replace("Assistant: ", "").trim(),
+                  };
+                }
+                return null;
+              })
+              .filter(Boolean);
+
+            const firstUserMsg = sessionMessages.find((m) => m.role === "user")?.content;
+
+            sessionMap.set(session.sessionId, {
+              id: session.sessionId,
+              title: firstUserMsg ? firstUserMsg.slice(0, 25) + "..." : "New Session",
+              messages: sessionMessages,
+            });
+          });
+
+          const restoredChats = Array.from(sessionMap.values());
+          setChats(restoredChats);
+
+          const firstSessionId = restoredChats?.id || null;
+          if (firstSessionId) {
+            setActiveChatId(firstSessionId);
+            setSessionId(firstSessionId);
+          }
+        } else {
+          createNewChat();
+        }
+      } catch (err) {
+        console.error("❌ History Sync Error:", err);
+        createNewChat();
+      }
+    };
+
+    fetchHistory();
+  }, [repoName]);
+
+  // ===========================
+  // CREATE NEW CHAT
+  // ===========================
   const createNewChat = () => {
-    const newChat = { id: Date.now(), title: "New Analysis", messages: [] };
-    setChats(prev => [newChat, ...prev]);
-    setActiveChatId(newChat.id);
+    const newId = `sess_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const newChat = {
+      id: newId,
+      title: "New Analysis",
+      messages: [],
+    };
+    setChats((prev) => [newChat, ...prev]);
+    setActiveChatId(newId);
+    setSessionId(newId);
   };
 
-  const deleteChat = (id) => {
-    const filtered = chats.filter(chat => chat.id !== id);
-    setChats(filtered);
-    if (id === activeChatId && filtered.length > 0) {
-      setActiveChatId(filtered.id);
+  // ===========================
+  // DELETE SESSION (DATABASE + UI)
+  // ===========================
+  const handleDeleteSession = async (e, idToDelete) => {
+    e.stopPropagation(); // Prevent selecting the chat when clicking delete
+    
+    if (!window.confirm("Permanently delete this session?")) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`${API_URL}/api/chat/session/${idToDelete}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        setChats((prev) => prev.filter((chat) => chat.id !== idToDelete));
+        
+        // If we deleted the active chat, pick the next available one or create new
+        if (activeChatId === idToDelete) {
+          const remaining = chats.filter((c) => c.id !== idToDelete);
+          if (remaining.length > 0) {
+            handleSelectSession(remaining.id);
+          } else {
+            createNewChat();
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ Delete Error:", err);
     }
+  };
+
+  const handleSelectSession = (id) => {
+    const selected = chats.find((c) => c.id === id);
+    if (!selected) return;
+    setActiveChatId(id);
+    setSessionId(id);
   };
 
   const updateMessages = (newMessages) => {
-    setChats(prev =>
-      prev.map(chat =>
-        chat.id === activeChatId ? { ...chat, messages: newMessages } : chat
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === activeChatId ? { ...chat, messages: [...newMessages] } : chat
       )
     );
   };
@@ -104,90 +171,102 @@ const ChatPage = () => {
 
     const userMessage = { role: "user", content: input };
     const newMessages = [...messages, userMessage];
+
     updateMessages(newMessages);
+
+    if (messages.length === 0) {
+      const title = input.slice(0, 25) + "...";
+      setChats((prev) =>
+        prev.map((c) => (c.id === activeChatId ? { ...c, title } : c))
+      );
+    }
 
     const currentInput = input;
     setInput("");
     setIsTyping(true);
 
-    if (messages.length === 0) {
-      const title = currentInput.slice(0, 25) + "...";
-      setChats(prev =>
-        prev.map(chat => chat.id === activeChatId ? { ...chat, title } : chat)
-      );
-    }
-
     try {
       const token = localStorage.getItem("token");
-      const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
       const response = await fetch(`${API_URL}/api/chat/`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           message: currentInput,
           repository: repoName,
+          user_id: userId,
+          session_id: sessionId,
           installation_id: instId,
-          history: newMessages.slice(-5)
+          history: newMessages.slice(-5),
         }),
       });
 
       const data = await response.json();
       if (response.ok) {
         updateMessages([...newMessages, { role: "assistant", content: data.content }]);
-      } else {
-        throw new Error(data.detail || "Failed to get AI response");
       }
     } catch (err) {
-      updateMessages([...newMessages, { role: "assistant", content: `❌ **Error:** ${err.message}` }]);
+      console.error("Chat error:", err);
     } finally {
       setIsTyping(false);
     }
   };
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
+  if (!repoName) return <div className="h-screen bg-[#020405]" />;
+
   return (
-    <div className="h-screen flex flex-col bg-[#020405] text-gray-300 font-sans overflow-hidden selection:bg-cyan-500/30">
+    <div className="h-screen flex flex-col bg-[#020408] text-slate-300 overflow-hidden font-sans">
       <DeveloperNavbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
+        
         {/* SIDEBAR */}
-        <aside className={`transition-all duration-500 ease-in-out ${isSidebarOpen ? "w-80" : "w-0"} bg-[#05070a] border-r border-white/[0.03] flex flex-col overflow-hidden`}>
-          <div className="p-6 space-y-6 h-full flex flex-col">
-            <div className="space-y-1">
-              <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                <Layers size={12} className="text-cyan-500" /> Active Session
-              </p>
-              <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl group hover:border-cyan-500/30 transition-all">
-                <p className="text-[10px] font-mono text-gray-500 truncate mb-1">REPOSITORY_VECTORS</p>
-                <p className="text-xs font-bold text-white truncate">{repoName}</p>
-              </div>
-            </div>
-
+        <aside
+          className={`${
+            isSidebarOpen ? "w-72" : "w-0"
+          } transition-all duration-300 ease-in-out bg-[#05070a] border-r border-white/5 flex flex-col`}
+        >
+          <div className="p-5 flex flex-col h-full overflow-hidden">
             <button
               onClick={createNewChat}
-              className="w-full flex items-center justify-between px-4 py-3 bg-cyan-500 text-black rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-cyan-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-cyan-500 hover:bg-cyan-400 transition-all text-[#020408] rounded-xl text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.2)]"
             >
-              Initialize New Chat <Plus size={16} />
+              <Plus size={16} strokeWidth={3} /> New Chat
             </button>
 
-            <div className="flex-1 overflow-y-auto space-y-1 pr-2 custom-scrollbar">
-              <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.2em] mb-3">History</p>
-              {chats.map(chat => (
+            <div className="mt-8 flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+              <div className="px-2 mb-4">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">History</span>
+              </div>
+              {chats.map((chat) => (
                 <div
                   key={chat.id}
-                  onClick={() => setActiveChatId(chat.id)}
-                  className={`group relative flex items-center px-4 py-3 rounded-xl cursor-pointer transition-all border ${
+                  onClick={() => handleSelectSession(chat.id)}
+                  className={`group relative w-full text-left px-4 py-3 rounded-xl text-xs transition-all flex items-center gap-3 border cursor-pointer ${
                     chat.id === activeChatId
-                      ? "bg-cyan-500/5 border-cyan-500/20 text-cyan-400"
-                      : "bg-transparent border-transparent text-gray-500 hover:bg-white/5 hover:text-gray-300"
+                      ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
+                      : "border-transparent text-slate-500 hover:bg-white/5 hover:text-slate-300"
                   }`}
                 >
-                  <MessageSquare size={14} className="mr-3 shrink-0" />
-                  <span className="text-xs font-medium truncate pr-6">{chat.title}</span>
-                  <Trash2
-                    size={14}
-                    className="absolute right-3 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
-                    onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
-                  />
+                  <MessageSquare size={14} className="flex-shrink-0" />
+                  <span className="truncate font-medium pr-6">{chat.title}</span>
+                  
+                  {/* DELETE ICON */}
+                  <button
+                    onClick={(e) => handleDeleteSession(e, chat.id)}
+                    className="absolute right-3 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
+                    title="Delete session"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -195,97 +274,62 @@ const ChatPage = () => {
         </aside>
 
         {/* MAIN CHAT */}
-        <main className="flex-1 flex flex-col relative bg-[#010203]">
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-cyan-500/5 blur-[150px] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-
-          {/* CHAT HEADER */}
-          <header className="h-20 border-b border-white/[0.03] flex items-center justify-between px-10 bg-black/40 backdrop-blur-2xl z-20">
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
-                    <Cpu size={20} className="text-cyan-400" />
-                </div>
-                <div>
-                    <h1 className="text-sm font-black tracking-[0.15em] uppercase text-white leading-none">CodeVerse Core</h1>
-                    <p className="text-[9px] text-gray-500 font-mono mt-1 tracking-widest uppercase">Autonomous Knowledge Engine</p>
-                </div>
-              </div>
+        <main className="flex-1 flex flex-col bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-[#0a0f1a] via-[#020408] to-[#020408]">
+          
+          {/* HEADER BAR (Switch Repo) */}
+          <div className="flex items-center justify-between px-8 py-4 bg-[#05070a]/50 backdrop-blur-md border-b border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">{repoName}</span>
             </div>
             
-            {/* INTEGRATED ORANGE NAVIGATION BUTTON */}
             <button 
-                onClick={() => navigate("/chatbot-selection")} 
-                className="flex items-center gap-3 px-4 py-2 bg-orange-500/5 border border-orange-500/20 rounded-full hover:bg-orange-500/10 hover:border-orange-500/40 transition-all group"
+              onClick={() => navigate("/chatbot-selection")} // Adjust path to your repo selection page
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold uppercase tracking-widest transition-all"
             >
-                <div className="relative flex items-center justify-center">
-                    <div className="absolute w-2.5 h-2.5 rounded-full bg-orange-500/40 animate-ping" />
-                    <div className="relative w-1.5 h-1.5 rounded-full bg-orange-500" />
-                </div>
-
-                <div className="flex flex-col items-start leading-none">
-                    <span className="text-[9px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1">
-                        Linked <Globe size={8} />
-                    </span>
-                    <span className="text-[10px] font-bold text-white/90 group-hover:text-orange-400 transition-colors">
-                        Switch Repository
-                    </span>
-                </div>
-                <ChevronDown size={14} className="text-gray-600 group-hover:text-orange-500 transition-colors" />
+              <ArrowLeftRight size={14} className="text-cyan-500" />
+              Switch Repo
             </button>
-          </header>
+          </div>
 
-          {/* MESSAGES AREA */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-10 space-y-10 z-10 scroll-smooth">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-6 md:px-16 lg:px-32 py-10 space-y-8 custom-scrollbar"
+          >
             {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center space-y-8 max-w-2xl mx-auto text-center opacity-60">
-                 <div className="p-5 bg-white/[0.02] border border-white/5 rounded-full shadow-2xl">
-                    <Zap size={40} className="text-cyan-500 animate-pulse" />
-                 </div>
-                 <div className="space-y-2">
-                    <h3 className="text-2xl font-black text-white tracking-tighter">Ready for Code Insight?</h3>
-                    <p className="text-sm text-gray-500 leading-relaxed font-light">Ask about function dependencies, architectural flaws, or logic optimizations. I am synchronized with your codebase.</p>
-                 </div>
+              <div className="h-full flex flex-col items-center justify-center space-y-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-cyan-500 blur-2xl opacity-10 animate-pulse"></div>
+                  <Cpu size={48} className="relative text-cyan-500/40" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className="text-slate-100 font-semibold tracking-tight">CodeVerse Intelligence</h3>
+                  <p className="text-xs text-slate-500 font-mono italic underline decoration-cyan-500/30">
+                    Analyzing: {repoName}
+                  </p>
+                </div>
               </div>
             ) : (
               messages.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] flex gap-5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
-                      msg.role === 'user' 
-                        ? 'bg-gray-800 border-white/10 text-gray-400' 
-                        : 'bg-cyan-500 border-cyan-400 text-black shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-                    }`}>
-                      {msg.role === 'user' ? <MessageSquare size={18} /> : <Cpu size={18} />}
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div 
+                    className={`max-w-[85%] lg:max-w-[80%] p-5 rounded-2xl border ${
+                      msg.role === "user"
+                        ? "bg-[#0f172a] border-cyan-500/20 text-slate-100"
+                        : "bg-[#0d1117]/80 backdrop-blur-sm border-white/5 text-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2 opacity-40">
+                       {msg.role === "user" ? <Terminal size={12} /> : <Code size={12} />}
+                       <span className="text-[10px] font-mono uppercase tracking-widest">
+                         {msg.role === "user" ? "Developer" : "CodeVerse AI"}
+                       </span>
                     </div>
-
-                    <div className={`p-6 rounded-3xl text-[13.5px] leading-relaxed shadow-2xl transition-all border ${
-                      msg.role === 'user' 
-                        ? 'bg-cyan-950/20 border-cyan-500/20 text-cyan-50 rounded-tr-none' 
-                        : 'bg-white/[0.03] border-white/5 text-gray-200 rounded-tl-none'
-                    }`}>
-                      <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          code({node, inline, className, children, ...props}) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            return !inline && match ? (
-                              <SyntaxHighlighter
-                                style={atomDark}
-                                language={match}
-                                PreTag="div"
-                                className="rounded-xl !my-4 !bg-[#05070a] border border-white/5 !p-4 shadow-inner"
-                                {...props}
-                              >
-                                {String(children).replace(/\n$/, '')}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className="bg-white/10 px-1.5 py-0.5 rounded text-cyan-400 font-mono text-xs" {...props}>
-                                {children}
-                              </code>
-                            )
-                          }
-                        }}
-                      >
+                    <div className="markdown-container text-sm leading-relaxed">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content}
                       </ReactMarkdown>
                     </div>
@@ -295,37 +339,59 @@ const ChatPage = () => {
             )}
 
             {isTyping && (
-              <div className="flex items-center gap-4 px-10 py-4 bg-white/[0.01] border border-white/5 rounded-2xl w-fit animate-pulse">
-                <Cpu size={14} className="text-cyan-500 animate-spin" />
-                <span className="text-[10px] font-black text-cyan-500/80 uppercase tracking-[0.2em]">Processing Vector Query...</span>
+              <div className="flex items-center gap-3 text-cyan-500 animate-pulse">
+                <div className="flex gap-1">
+                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce"></div>
+                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                </div>
+                <span className="text-[10px] font-mono uppercase tracking-[0.3em]">Synthesizing response</span>
               </div>
             )}
           </div>
 
-          {/* INPUT SECTION */}
-          <div className="p-10 bg-gradient-to-t from-[#020405] via-[#020405]/80 to-transparent z-20">
-            <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-2xl blur-md opacity-0 group-focus-within:opacity-100 transition-all" />
+          {/* INPUT FORM */}
+          <div className="p-6 md:px-16 lg:px-32 bg-gradient-to-t from-[#020408] to-transparent">
+            <form
+              onSubmit={handleSendMessage}
+              className="relative flex items-center gap-3 bg-[#0d1117] border border-white/10 p-2 rounded-2xl focus-within:border-cyan-500/50 transition-all shadow-2xl"
+            >
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={`Query ${repoName.split('/').pop() || 'Repository'}...`}
-                className="relative w-full bg-[#05070a] border border-white/10 rounded-2xl py-6 pl-8 pr-20 text-sm text-white placeholder-gray-600 focus:border-cyan-500/40 focus:outline-none transition-all shadow-2xl"
+                placeholder={`Query repository...`}
+                className="flex-1 p-3 bg-transparent border-none outline-none text-sm text-slate-200 placeholder:text-slate-600"
               />
-              <button
-                type="submit"
-                disabled={!input.trim() || isTyping}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-cyan-500 text-black rounded-xl hover:bg-cyan-400 disabled:opacity-30 disabled:grayscale transition-all shadow-lg active:scale-95"
-              >
-                <Send size={22} />
+
+              <button className="p-3 bg-cyan-500 hover:bg-cyan-400 text-[#020408] rounded-xl transition-all active:scale-95 shadow-lg shadow-cyan-500/10">
+                <Send size={18} />
               </button>
             </form>
-            <p className="text-center text-[9px] text-gray-700 font-mono mt-4 uppercase tracking-widest">
-                CodeVerse Intelligence Engine v2.4.0 // Secure Contextual Analysis
-            </p>
           </div>
         </main>
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.3); }
+        
+        .markdown-container pre { 
+          background: #010409 !important; 
+          padding: 1.25rem; 
+          border-radius: 12px; 
+          border: 1px solid rgba(255,255,255,0.05);
+          margin: 1rem 0;
+          overflow-x: auto;
+        }
+        .markdown-container code { 
+          font-family: 'JetBrains Mono', monospace; 
+          color: #22d3ee;
+          font-size: 0.85rem;
+        }
+        .markdown-container p { margin-bottom: 0.75rem; }
+      `}} />
     </div>
   );
 };
