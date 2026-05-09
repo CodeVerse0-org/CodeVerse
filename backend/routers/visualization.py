@@ -38,6 +38,7 @@ def force_scalar(val, max_len=20000):
 
 
 # ---------------- GET HISTORY LIST ----------------
+# ---------------- GET HISTORY LIST (FIXED) ----------------
 @router.get("/history")
 async def get_history(
     request: Request,
@@ -47,6 +48,7 @@ async def get_history(
     if not driver:
         raise HTTPException(status_code=500, detail="Neo4j driver not initialized")
 
+    # Ensure user_id matches the format used in sync_to_neo4j (force_scalar/str)
     user_id = str(user_data.get("id"))
     
     query = """
@@ -58,13 +60,15 @@ async def get_history(
     try:
         with driver.session() as session:
             result = session.run(query, user_id=user_id)
-            return [dict(record) for record in result]
+            # Fetch all records into a list of dicts
+            history = [dict(record) for record in result]
+            return history
     except Exception as e:
-        print(f"❌ Error fetching history: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch history")
+        print(f"❌ Error fetching history for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-# ---------------- GET SPECIFIC HISTORY (MATCHES FRONTEND 404 URL) ----------------
+# ---------------- GET SPECIFIC HISTORY (REFINED) ----------------
 @router.get("/graph-history/{owner}/{repo}")
 async def get_specific_graph_history(
     owner: str,
@@ -76,14 +80,15 @@ async def get_specific_graph_history(
 ):
     driver = request.app.state.neo4j_driver
     full_repo = f"{owner}/{repo}"
-    user_id = str(user_data.get("id")) # Security: Ensure user owns this repo
+    user_id = str(user_data.get("id"))
     
-    # Updated Query: Returns 'summary' along with other node data
+    # This query retrieves nodes and their relationships for a specific snapshot
     query = """
     MATCH (r:Repository {name: $repo_name, user_id: $user_id})-[:HAS_GRAPH]->(g:Graph {timestamp: $timestamp, type: $type})
     OPTIONAL MATCH (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(node)
     OPTIONAL MATCH (node)-[rel:IMPORTS|CALLS]->(target)
     WHERE (g)-[:HAS_FILE|CONTAINS_FUNCTION]->(target)
+    WITH node, target
     RETURN 
         collect(distinct {
             id: node.id, 
@@ -91,7 +96,7 @@ async def get_specific_graph_history(
                 label: coalesce(node.label, node.name), 
                 content: node.content, 
                 file: node.file,
-                summary: node.summary  // <--- Retrieve the stored summary
+                summary: node.summary
             }
         }) as nodes,
         collect(distinct {source: node.id, target: target.id}) as edges
@@ -100,12 +105,24 @@ async def get_specific_graph_history(
     try:
         with driver.session() as session:
             result = session.run(query, repo_name=full_repo, timestamp=timestamp, type=graph_type, user_id=user_id).single()
+            
             if not result or not result["nodes"]:
                 return {"nodes": [], "dependencies": []}
-            return {"nodes": result["nodes"], "dependencies": result["edges"]}
+                
+            # Filter out null entries from collect(distinct) when no edges exist
+            cleaned_edges = [e for e in result["edges"] if e.get("source") is not None]
+            
+            return {
+                "nodes": result["nodes"], 
+                "dependencies": cleaned_edges
+            }
     except Exception as e:
-        print(f"❌ Error loading history graph: {e}")
+        print(f"❌ Error loading history graph for {full_repo}: {e}")
         raise HTTPException(status_code=500, detail="Failed to load historical graph")
+
+
+# ---------------- GET SPECIFIC HISTORY (MATCHES FRONTEND 404 URL) ----------------
+
 
 # ---------------- NEO4J FILE SYNC (STABLE BATCHED VERSION) ----------------
 def sync_to_neo4j(driver, repo_name, nodes, edges, user_id):
