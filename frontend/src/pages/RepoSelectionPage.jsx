@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Network, CheckCircle2, Github, AlertCircle, ArrowRight, ShieldCheck, Box, Search } from "lucide-react";
+import { Network, Github, AlertCircle, ArrowRight, ShieldCheck, Box, Search } from "lucide-react";
 
 import DeveloperSidebar from "../components/DeveloperSidebar";
 import DeveloperNavbar from "../components/DeveloperNavbar"; 
@@ -65,9 +65,12 @@ const RepoSelectionPage = () => {
     setInstallationId(repo.installation_id);
   };
 
+  // UPDATED: Logic to allow navigation even without installationId
   const handleProcess = () => {
-    if (!selectedRepo || !installationId) return;
-    navigate(`/visualization?repo=${encodeURIComponent(selectedRepo)}&inst=${installationId}`);
+    if (!selectedRepo) return;
+    // Pass the installation ID if it exists, otherwise pass an empty string or null
+    const inst = installationId || "not_installed";
+    navigate(`/visualization?repo=${encodeURIComponent(selectedRepo)}&inst=${inst}`);
   };
 
   return (
@@ -95,7 +98,6 @@ const RepoSelectionPage = () => {
         <DeveloperSidebar user={user} isOpen={isSidebarOpen} />
         
         <div className="flex-1 flex flex-col relative overflow-hidden">
-          {/* Sub-Header */}
           <header className="h-20 border-b border-white/5 flex items-center px-10 bg-black/20 backdrop-blur-md justify-between z-20">
             <div className="flex items-center gap-5">
                <div className="bg-white/5 p-3 rounded-xl">
@@ -113,8 +115,6 @@ const RepoSelectionPage = () => {
           </header>
 
           <main className="flex-1 p-8 lg:p-12 flex gap-8 overflow-hidden bg-[#020405]">
-            
-            {/* Left Panel: The Target List */}
             <div className="w-[420px] flex flex-col border border-white/5 rounded-3xl bg-black/60 backdrop-blur-sm overflow-hidden shadow-2xl">
               <div className="p-5 border-b border-white/5 bg-white/[0.02] flex items-center gap-3">
                 <Search size={18} className="text-gray-600" />
@@ -175,7 +175,6 @@ const RepoSelectionPage = () => {
               </div>
             </div>
 
-            {/* Right Panel: The Action Core */}
             <div className="flex-1 flex flex-col items-center justify-center border border-white/5 rounded-[40px] bg-black/40 p-16 relative overflow-hidden group shadow-inner">
               <div className="scanline" />
               
@@ -195,7 +194,7 @@ const RepoSelectionPage = () => {
                 
                 <div className="text-center space-y-4 mb-14">
                    <h1 className="text-4xl font-black text-white tracking-tighter uppercase italic leading-none">
-                     {selectedRepo ? "Visualization Ready" : "Select Repositry"}
+                     {selectedRepo ? "Visualization Ready" : "Select Repository"}
                    </h1>
                    <p className="text-xs text-gray-500 uppercase tracking-[.4em] font-bold leading-relaxed">
                      {selectedRepo 
@@ -206,31 +205,16 @@ const RepoSelectionPage = () => {
 
                 <button 
                   onClick={handleProcess} 
-                  disabled={!selectedRepo || !installationId} 
+                  disabled={!selectedRepo} 
                   className="group/btn relative w-full flex items-center justify-center gap-5 bg-transparent border-2 border-cyan-500/50 py-6 rounded-2xl text-cyan-400 text-sm font-black uppercase tracking-[.5em] overflow-hidden transition-all hover:border-cyan-400 hover:text-white disabled:opacity-10"
                 >
                   <div className="absolute inset-0 bg-cyan-500 translate-y-[101%] group-hover/btn:translate-y-0 transition-transform duration-300" />
                   <span className="relative z-10 flex items-center gap-4">
-                    {installationId ? "Initialize Analysis" : "Access Denied"}
+                    Initialize Analysis
                     <ArrowRight size={20} className="group-hover/btn:translate-x-3 transition-transform" />
                   </span>
                 </button>
-
-                {selectedRepo && !installationId && (
-                  <div className="mt-10 flex items-center gap-4 bg-rose-500/10 border border-rose-500/20 px-8 py-4 rounded-2xl animate-pulse">
-                    <AlertCircle size={20} className="text-rose-500" />
-                    <span className="text-[11px] text-rose-500 font-black uppercase tracking-widest">
-                      Permissions Required: Install GitHub App
-                    </span>
-                  </div>
-                )}
               </div>
-
-              {/* Decorative Label */}
-              {/* <div className="absolute bottom-12 right-12 flex items-center gap-4 opacity-40">
-                 <span className="text-[10px] font-mono uppercase tracking-[.5em] text-white">Target Acquisition Mode</span>
-                 <div className="w-12 h-[1px] bg-white" />
-              </div> */}
             </div>
           </main>
         </div>

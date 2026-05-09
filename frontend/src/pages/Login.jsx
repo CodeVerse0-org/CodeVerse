@@ -34,6 +34,7 @@ const Login = () => {
         navigate("/mfa", { state: { user_id: data.user_id } });
       } else {
         localStorage.setItem("token", data.access_token);
+        localStorage.setItem("userId", data.user_id);
         const payload = JSON.parse(atob(data.access_token.split(".")[1]));
         navigate(payload.role === "admin" ? "/adminDashboard" : "/developerDashboard");
       }

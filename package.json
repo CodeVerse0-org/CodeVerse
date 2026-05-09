@@ -2,6 +2,7 @@
   "dependencies": {
     "@xyflow/react": "^12.10.0",
     "dagre": "^0.8.5",
-    "react-force-graph-2d": "^1.29.1"
+    "react-force-graph-2d": "^1.29.1",
+    "socket.io-client": "^4.8.3"
   }
 }

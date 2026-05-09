@@ -55,3 +55,27 @@ class GitHubInstallation(Base):
     org_id = Column(BigInteger, nullable=False, unique=True)
     installation_id = Column(BigInteger, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+class Repository(Base):
+    __tablename__ = "repositories"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+
+    name = Column(String(255), nullable=False)
+
+    full_name = Column(String(255))
+
+    html_url = Column(Text)
+
+    private = Column(Boolean, default=False)
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"))  # ✅ correct
+    repo_id = Column(Integer)  # ❌ NO foreign key here
+
+    title = Column(String)
+    message = Column(Text)
+    event_type = Column(String)
+    is_read = Column(Boolean, default=False)
