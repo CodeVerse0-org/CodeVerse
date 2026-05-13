@@ -6,9 +6,8 @@ import {
   Smartphone, User, Lock, Save, RefreshCcw 
 } from "lucide-react";
 
-// Components
 import Sidebar from "../components/Sidebar";
-import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperNavbar from "../components/AdminNavbar";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -16,18 +15,14 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   
-  // Admin & Sidebar State
   const [user, setUser] = useState({ id: null, mfa_enabled: false });
-  const [admin, setAdmin] = useState({ 
-    name: localStorage.getItem("user_fname") + " " + localStorage.getItem("user_lname") || "Admin", 
-    email: "" 
-  });
+  const [admin, setAdmin] = useState({ name: "", email: "" });
   const [isConnected, setIsConnected] = useState(false);
-
-  // Form Data (Maintains your Profile logic)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
   const [formData, setFormData] = useState({
-    firstName: localStorage.getItem("user_fname") || "",
-    lastName: localStorage.getItem("user_lname") || "",
+    firstName: "",
+    lastName: "",
     currentPassword: "",
     newPassword: "",
   });
@@ -36,20 +31,10 @@ const Settings = () => {
   const [code, setCode] = useState("");
   const [msg, setMsg] = useState("");
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    const saved = localStorage.getItem("sidebarOpen");
-    return saved !== null ? JSON.parse(saved) : true;
-  });
-
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen((prev) => {
-      const newState = !prev;
-      localStorage.setItem("sidebarOpen", JSON.stringify(newState));
-      return newState;
-    });
-  };
+  // Toggle Sidebar visibility
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
   useEffect(() => {
     const fetchAdminData = async () => {
@@ -59,7 +44,7 @@ const Settings = () => {
 
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));
-        const userId = payload.sub;
+        const userId = parseInt(payload.sub);
 
         const [adminRes, statusRes, mfaRes] = await Promise.all([
           fetch(`${API_URL}/auth/me`, { headers }),
@@ -70,9 +55,7 @@ const Settings = () => {
         if (adminRes.ok) {
           const data = await adminRes.json();
           setAdmin({ name: `${data.first_name} ${data.last_name}`, email: data.email });
-          setFormData(prev => ({ ...prev, firstName: data.first_name, lastName: data.last_name }));
-          localStorage.setItem("user_fname", data.first_name);
-          localStorage.setItem("user_lname", data.last_name);
+          setFormData(f => ({ ...f, firstName: data.first_name, lastName: data.last_name }));
         }
 
         if (statusRes.ok) {
@@ -85,7 +68,7 @@ const Settings = () => {
           setUser({ id: userId, mfa_enabled: mfaData.mfa_enabled });
         }
       } catch (err) {
-        console.error("Admin Sync Error:", err);
+        console.error("Sync Error:", err);
       } finally {
         setLoading(false);
       }
@@ -93,46 +76,48 @@ const Settings = () => {
     fetchAdminData();
   }, [API_URL, navigate]);
 
+  // Handle Profile and Password Updates
   const handleUpdate = async (e) => {
     e.preventDefault();
     setActionLoading(true);
-    const token = localStorage.getItem("token");
-    const endpoint = activeTab === "general" ? "/api/user/update-name" : "/api/user/change-password";
+    setMsg("Processing Request...");
     
-    const body = activeTab === "general" 
-      ? { firstName: formData.firstName, lastName: formData.lastName }
-      : { currentPassword: formData.currentPassword, newPassword: formData.newPassword };
-
+    const token = localStorage.getItem("token");
+    const endpoint = activeTab === "general" ? "/auth/update-profile" : "/auth/change-password";
+    
     try {
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${token}` 
+        },
+        body: JSON.stringify(formData),
       });
 
       if (res.ok) {
-        alert("System Updated Successfully.");
+        setMsg("✅ System Records Updated");
         if (activeTab === "general") {
           setAdmin(prev => ({ ...prev, name: `${formData.firstName} ${formData.lastName}` }));
-          localStorage.setItem("user_fname", formData.firstName);
-          localStorage.setItem("user_lname", formData.lastName);
-        } else {
-          setFormData({ ...formData, currentPassword: "", newPassword: "" });
         }
+        setFormData(prev => ({ ...prev, currentPassword: "", newPassword: "" }));
+      } else {
+        setMsg("❌ Update Failed: Verify Credentials");
       }
     } catch (err) {
-      alert("System Error: Update failed.");
+      setMsg("❌ Connection Error");
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleMfaToggle = async () => {
+    const token = localStorage.getItem("token");
     if (user.mfa_enabled) {
-      if (!window.confirm("Disabling MFA will reduce admin security. Proceed?")) return;
+      if (!window.confirm("Disabling MFA reduces security. Proceed?")) return;
       const res = await fetch(`${API_URL}/mfa/disable`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: user.id }),
       });
       if (res.ok) {
@@ -146,15 +131,23 @@ const Settings = () => {
 
   const enableMFA = async () => {
     setMsg("Requesting Secret...");
-    const res = await fetch(`${API_URL}/mfa/setup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: user.id }),
-    });
-    const data = await res.json();
-    const qrImg = await QRCode.toDataURL(data.otpauth_url);
-    setQr(qrImg);
-    setMsg("");
+    try {
+      const res = await fetch(`${API_URL}/mfa/setup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const qrImg = await QRCode.toDataURL(data.otpauth_url);
+        setQr(qrImg);
+        setMsg("");
+      } else {
+        setMsg("Failed to initialize MFA");
+      }
+    } catch (err) {
+      setMsg("Connection Error");
+    }
   };
 
   const confirmSetup = async () => {
@@ -181,10 +174,6 @@ const Settings = () => {
         <Sidebar admin={admin} isConnected={isConnected} isOpen={isSidebarOpen} />
 
         <div className="flex-1 flex flex-col relative overflow-hidden">
-          {/* <header className="h-14 border-b border-white/5 flex items-center px-8 bg-black/40 backdrop-blur-xl shrink-0 z-20">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400">Admin / Settings Dashboard</h2>
-          </header> */}
-
           <main className="flex-1 p-10 overflow-y-auto bg-[#010203] custom-scrollbar">
             <div className="max-w-6xl mx-auto">
               
@@ -208,7 +197,7 @@ const Settings = () => {
                   {/* Vertical Tabs */}
                   <div className="w-full lg:w-64 flex flex-col gap-3 shrink-0">
                     <button 
-                      onClick={() => setActiveTab("general")} 
+                      onClick={() => { setActiveTab("general"); setMsg(""); }} 
                       className={`flex items-center gap-4 px-6 py-5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
                         activeTab === "general" ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:bg-white/5'
                       }`}
@@ -216,7 +205,7 @@ const Settings = () => {
                       <User size={18} /> Admin Profile
                     </button>
                     <button 
-                      onClick={() => setActiveTab("security_pass")} 
+                      onClick={() => { setActiveTab("security_pass"); setMsg(""); }} 
                       className={`flex items-center gap-4 px-6 py-5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
                         activeTab === "security_pass" ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:bg-white/5'
                       }`}
@@ -224,7 +213,7 @@ const Settings = () => {
                       <Lock size={18} /> Credentials
                     </button>
                     <button 
-                      onClick={() => setActiveTab("mfa")} 
+                      onClick={() => { setActiveTab("mfa"); setMsg(""); }} 
                       className={`flex items-center gap-4 px-6 py-5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
                         activeTab === "mfa" ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-gray-500 hover:bg-white/5'
                       }`}
@@ -295,6 +284,7 @@ const Settings = () => {
 
                     {activeTab === "mfa" && (
                       <div className="space-y-6">
+                        {/* MFA Card and QR Logic Remains Same */}
                         <div className="bg-black/40 border border-white/5 rounded-[40px] p-10 backdrop-blur-xl shadow-2xl">
                           <div className="flex justify-between items-start">
                             <div className="flex gap-5">
@@ -318,8 +308,6 @@ const Settings = () => {
                             </button>
                           </div>
                         </div>
-
-                        {/* Wide QR Scanner Area */}
                         {qr && (
                           <div className="p-10 bg-white/[0.02] border border-white/5 rounded-[2.5rem] animate-in fade-in slide-in-from-bottom-4 duration-500">
                             <div className="flex flex-col md:flex-row items-center gap-12">
@@ -363,10 +351,9 @@ const Settings = () => {
                             </div>
                           </div>
                         )}
-                        {msg && <p className="text-center text-[10px] font-black uppercase text-cyan-400 tracking-widest animate-pulse">{msg}</p>}
                       </div>
                     )}
-
+                    {msg && <p className="mt-6 text-center text-[10px] font-black uppercase text-cyan-400 tracking-widest animate-pulse">{msg}</p>}
                   </div>
                 </div>
               )}
