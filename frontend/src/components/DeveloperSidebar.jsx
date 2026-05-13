@@ -92,10 +92,16 @@ const DeveloperSidebar = ({ user, isOpen }) => {
             onClick={() => navigate("/summaries")} 
           />
           <SidebarItem 
+    icon={<Terminal />} 
+    label="Analyze Repo" 
+    active={location.pathname === "/analyze-repo"} 
+    onClick={() => navigate("/analyze-repo")} 
+  />
+          <SidebarItem 
             icon={<MessageSquare />} 
             label="Chatbot" 
-            active={location.pathname === "/chatbot"} 
-            onClick={() => navigate("/chatbot")} 
+            active={location.pathname === "/chatbot-selection"} 
+            onClick={() => navigate("/chatbot-selection")} 
           />
           <SidebarItem 
             icon={<History />} 

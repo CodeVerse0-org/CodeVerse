@@ -7,7 +7,8 @@ import {
   Settings, 
   User, 
   LogOut, 
-  UserPlus 
+  UserPlus,
+  Shield // Added for Audit Logs
 } from "lucide-react";
 
 const SidebarItem = ({ icon, label, active, onClick }) => (
@@ -83,6 +84,13 @@ const Sidebar = ({ admin, isConnected, isOpen }) => {
             label="Invite Users" 
             active={location.pathname === "/invite-users"} 
             onClick={() => navigate("/invite-users")} 
+          />
+          {/* New Audit Logs Item */}
+          <SidebarItem 
+            icon={<Shield />} 
+            label="Audit Logs" 
+            active={location.pathname === "/audit-logs"} 
+            onClick={() => navigate("/audit-logs")} 
           />
           <SidebarItem 
             icon={<Settings />} 

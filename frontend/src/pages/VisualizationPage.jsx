@@ -47,7 +47,9 @@ const VisualizationContent = () => {
   const timestamp = searchParams.get("timestamp");
   const isHistory = searchParams.get("history") === "true";
 
-  const fullRepoName = (owner && repo) ? `${owner}/${repo}` : queryRepo;
+  const fullRepoName = (owner && repo) 
+  ? `${owner}/${repo}` 
+  : searchParams.get("repo") || "";
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [displayData, setDisplayData] = useState({ nodes: [], edges: [] });
@@ -129,7 +131,9 @@ const VisualizationContent = () => {
         endpoint = `${API_URL}/api/repos/graph-history/${owner}/${repo}?timestamp=${encodeURIComponent(timestamp)}&graph_type=file`;
         method = "GET";
       } else {
-        endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(fullRepoName)}&installation_id=${instId}`;
+       endpoint = `${API_URL}/api/repos/generate-graph?full_repo=${encodeURIComponent(fullRepoName)}${
+  instId ? `&installation_id=${instId}` : ""
+}`;
         method = "POST";
       }
 
@@ -313,6 +317,12 @@ const VisualizationContent = () => {
               >
                 FUNCTION GRAPH
               </button>
+              <button
+            onClick={() => navigate(`/state-visualization?repo=${fullRepoName}&inst=${instId}`)}
+            className="px-5 py-2 text-xs font-bold bg-purple-600 text-white rounded-lg"
+            >
+           STATE GRAPH
+          </button>
             </div>
             {!loading && (
               <div className="search-wrapper" ref={searchRef}>

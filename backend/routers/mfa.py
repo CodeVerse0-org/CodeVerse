@@ -1,75 +1,120 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from db.connection import get_db
 import pyotp
-import logging
+from db.connection import get_db
+
+# ✅ FIXED: use SAME token system
+from utils.security import create_access_token
 
 router = APIRouter()
-logging.basicConfig(level=logging.INFO)
+
 
 class MFASetupRequest(BaseModel):
     user_id: int
+
 
 class MFAVerifyRequest(BaseModel):
     user_id: int
     token: str
 
+
+@router.get("/status/{user_id}")
+def get_mfa_status(user_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT mfa_enabled FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not row:
+        raise HTTPException(404, "User not found")
+
+    return {"mfa_enabled": row[0]}
+
+
 @router.post("/setup")
 def mfa_setup(data: MFASetupRequest):
-    conn = None
-    cur = None
-    try:
-        conn = get_db()
-        cur = conn.cursor()
+    conn = get_db()
+    cur = conn.cursor()
 
-        # Generate secret
-        secret = pyotp.random_base32()
-        totp = pyotp.TOTP(secret)
-        otpauth_url = totp.provisioning_uri(
-            name=f"CodeVerse:{data.user_id}", issuer_name="CodeVerse"
-        )
+    secret = pyotp.random_base32()
+    otp_url = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=str(data.user_id),
+        issuer_name="CodeVerse"
+    )
 
-        # Save secret to DB
-        cur.execute("UPDATE users SET mfa_secret=%s, mfa_enabled=FALSE WHERE id=%s", (secret, data.user_id))
-        conn.commit()
+    cur.execute(
+        "UPDATE users SET mfa_secret=%s WHERE id=%s",
+        (secret, data.user_id)
+    )
+    conn.commit()
 
-        return {"otpauth_url": otpauth_url, "secret": secret}  # return secret for debugging
+    cur.close()
+    conn.close()
 
-    finally:
-        if cur: cur.close()
-        if conn: conn.close()
+    return {"otpauth_url": otp_url}
+
 
 @router.post("/verify")
 def mfa_verify(data: MFAVerifyRequest):
-    conn = None
-    cur = None
-    try:
-        conn = get_db()
-        cur = conn.cursor()
+    conn = get_db()
+    cur = conn.cursor()
 
-        cur.execute("SELECT mfa_secret, role FROM users WHERE id=%s", (data.user_id,))
-        row = cur.fetchone()
-        if not row or not row[0]:
-            raise HTTPException(status_code=400, detail="MFA not initialized")
+    cur.execute(
+        "SELECT mfa_secret, role, email FROM users WHERE id=%s",
+        (data.user_id,)
+    )
+    row = cur.fetchone()
 
-        secret, role = row
-        totp = pyotp.TOTP(secret)
+    if not row or not row[0]:
+        raise HTTPException(400, "MFA not initialized")
 
-        # Allow 1 step window before/after to handle small clock differences
-        if not totp.verify(data.token, valid_window=1):
-            logging.warning(f"Invalid MFA token for user {data.user_id}")
-            logging.info(f"Expected token: {totp.now()}, Provided token: {data.token}")
-            raise HTTPException(status_code=400, detail="Invalid MFA code")
+    secret, role, email = row
+    totp = pyotp.TOTP(secret)
 
-        # enable MFA
-        cur.execute("UPDATE users SET mfa_enabled=TRUE WHERE id=%s", (data.user_id,))
-        conn.commit()
+    if not totp.verify(data.token, valid_window=1):
+        raise HTTPException(400, "Invalid MFA code")
 
-        from utils.security import create_access_token
-        access_token = create_access_token({"sub": str(data.user_id), "role": role})
+    # enable MFA
+    cur.execute(
+        "UPDATE users SET mfa_enabled=TRUE WHERE id=%s",
+        (data.user_id,)
+    )
+    conn.commit()
 
-        return {"access_token": access_token, "token_type": "bearer"}
+    cur.close()
+    conn.close()
 
-    finally:
-        if cur: cur.close()
-        if conn: conn.close()
+    # ✅ FIXED TOKEN
+    access_token = create_access_token({
+        "sub": str(data.user_id),
+        "role": role,
+        "email": email,
+        "mfa_verified": True
+    })
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": role
+    }
+
+
+@router.post("/disable")
+def mfa_disable(data: MFASetupRequest):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        "UPDATE users SET mfa_enabled=FALSE, mfa_secret=NULL WHERE id=%s",
+        (data.user_id,)
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"message": "MFA disabled"}

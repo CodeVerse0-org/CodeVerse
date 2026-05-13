@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ExternalLink, AlertCircle 
 } from "lucide-react";
 import Sidebar from "../components/Sidebar"; 
-import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperNavbar from "../components/AdminNavbar";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();

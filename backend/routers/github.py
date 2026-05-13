@@ -2,6 +2,8 @@ import time
 import logging
 from jose import jwt
 import requests
+import httpx
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -10,6 +12,22 @@ from db.session import get_db as get_sqlalchemy_db
 from db.connection import get_db
 from utils.security import decode_access_token
 from config import settings
+
+# Added to resolve ImportErrors in other routers
+async def fetch_file_content(client: httpx.AsyncClient, url: str, headers: dict, semaphore: asyncio.Semaphore):
+    """
+    Utility function to fetch a single file's content from GitHub API 
+    using a semaphore to limit concurrency.
+    """
+    async with semaphore:
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except Exception as e:
+            logging.error(f"Error fetching {url}: {e}")
+            return None
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +97,7 @@ def get_install_url(user_id: int = Depends(get_current_user_id)):
     redirect_uri = "http://localhost:5173/github-callback"
     url = f"https://github.com/apps/{GITHUB_APP_SLUG}/installations/new?state={user_id}&redirect_uri={redirect_uri}"
     return {"url": url}
+
 @router.get("/developer/repos")
 def get_developer_repos(
     db: Session = Depends(get_sqlalchemy_db),

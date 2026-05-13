@@ -5,27 +5,32 @@ import KeyFeatures from "../components/KeyFeatures";
 import HowItWorks from "../components/HowItWorks";
 import CallToAction from "../components/CallToAction";
 import Footer from "../components/Footer";
+import GraphBackground from "../components/GraphBackground";
 
 const LandingPage = () => (
-  <div className="min-h-screen bg-[#020405] text-gray-200 font-sans selection:bg-cyan-500 selection:text-black">
-    <Header />
+  <div className="min-h-screen bg-[#020405] text-gray-200 font-sans selection:bg-cyan-500 selection:text-black relative">
+    {/* Bouncing blurred nodes background */}
+    <GraphBackground />
     
-    <main>
-      <HeroSection />
+    <div className="relative z-10">
+      <Header />
       
-      {/* Section Divider */}
-      <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-      
-      <KeyFeatures />
-      
-      <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-      
-      <HowItWorks />
-      
-      <CallToAction />
-    </main>
+      <main>
+        <HeroSection />
+        
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+        
+        <KeyFeatures />
+        
+        <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+        
+        <HowItWorks />
+        
+        <CallToAction />
+      </main>
 
-    <Footer />
+      <Footer />
+    </div>
 
     <style>{`
       @keyframes pulse {

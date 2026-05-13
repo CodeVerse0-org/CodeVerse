@@ -5,7 +5,7 @@ import {
   Search, Database, Github, Loader2, Code2 
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
-import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperNavbar from "../components/AdminNavbar";
 
 const Repositories = () => {
   const [repos, setRepos] = useState([]);

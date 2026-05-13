@@ -13,7 +13,7 @@ from routers.visualization import router as visualization_router
 from routers.auth_reset import router as reset_router
 from routers.users import router as users_router
 from routers.summaries import router as summaries_router
-
+from routers.chatbot import router as chatbot_router
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="CodeVerse Backend")
@@ -53,10 +53,9 @@ app.include_router(github_router, prefix="/api/github", tags=["github"])
 app.include_router(invite_router, prefix="/api/invite", tags=["invite"])
 app.include_router(users_router, prefix="/api/user", tags=["users"])
 app.include_router(summaries_router, prefix="/api/summaries", tags=["summaries"])
-
+app.include_router(chatbot_router) # 2. Include the chatbot router
 # Updated: The prefix is now handled inside visualization.py via APIRouter(prefix="/api/repos")
 app.include_router(visualization_router)
-
 @app.get("/")
 def root():
     return {"status": "ok", "message": "CodeVerse API running"}

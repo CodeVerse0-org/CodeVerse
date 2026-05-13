@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Eye, EyeOff, User, Mail, Lock, ShieldCheck, ChevronRight, Loader2, Code2 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
+import GraphBackground from "../components/GraphBackground"; // Import the shared background
 
 const DeveloperSignup = () => {
   const navigate = useNavigate();
@@ -17,6 +18,9 @@ const DeveloperSignup = () => {
   const [serverError, setServerError] = useState("");
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+  // Stabilize the background so it doesn't reset on keystrokes
+  const memoizedBG = useMemo(() => <GraphBackground />, []);
 
   const getPasswordStrength = (pass) => {
     if (!pass) return 0;
@@ -117,176 +121,176 @@ const DeveloperSignup = () => {
   ) : null;
 
   return (
-    <div className="h-screen w-full bg-[#020405] text-gray-200 font-sans overflow-hidden flex selection:bg-cyan-500/30">
-      {/* Background Ambient Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+    <div className="h-screen w-full bg-[#020405] text-gray-200 font-sans overflow-hidden flex selection:bg-cyan-500/30 relative">
+      
+      {/* 1. Integrated Animated Background */}
+      {memoizedBG}
 
-      {/* Left Side: Branding/Visual */}
-      <div className="hidden lg:flex flex-1 flex-col justify-center px-20 relative z-10 border-r border-white/5 bg-black/20">
-        <div className="mb-8">
-          <div className="text-cyan-500 font-black text-xs uppercase tracking-[0.4em] mb-4"></div>
-          <h1 className="text-7xl font-black text-white tracking-tighter leading-none">
-            CODE<span className="text-cyan-500">VERSE</span>
-          </h1>
-          <p className="text-gray-500 mt-6 text-xl font-medium max-w-md leading-relaxed">
-            Access codebase visualizations
-          </p>
-        </div>
-        <div className="space-y-6">
-            <div className="flex items-center gap-4 text-sm font-bold text-gray-400">
-                <Code2 className="text-cyan-500" size={20} />
-                <span>Advanced Graph Visualizations</span>
-            </div>
-            <div className="flex items-center gap-4 text-sm font-bold text-gray-400">
-                <ShieldCheck className="text-cyan-500" size={20} />
-                <span>Secure Multi-Factor Access</span>
-            </div>
-        </div>
-      </div>
-
-      {/* Right Side: Signup Form */}
-      <div className="flex-1 flex items-center justify-center p-8 z-10 overflow-y-auto custom-scrollbar">
-        <div className="w-full max-w-md space-y-8">
-          <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black text-white tracking-tight uppercase">Developer Account</h2>
-            <p className="text-gray-500 text-sm font-bold mt-2 uppercase tracking-widest">Join the CodeVerse Workspace</p>
+      {/* 2. Main content container sitting above the nodes */}
+      <div className="flex w-full h-full relative z-10">
+        
+        {/* Left Side: Branding with Glass Effect */}
+        <div className="hidden lg:flex flex-1 flex-col justify-center px-20 relative z-10 border-r border-white/5 bg-black/40 backdrop-blur-sm">
+          <div className="mb-8">
+            <div className="text-cyan-500 font-black text-xs uppercase tracking-[0.4em] mb-4">Development Environment</div>
+            <h1 className="text-7xl font-black text-white tracking-tighter leading-none">
+              CODE<span className="text-cyan-500">VERSE</span>
+            </h1>
+            <p className="text-gray-500 mt-6 text-xl font-medium max-w-md leading-relaxed">
+              Access codebase visualizations and join the collaborative workspace.
+            </p>
           </div>
-
-          {serverError && (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-[10px] font-black uppercase text-center animate-in fade-in zoom-in">
-              {serverError}
+          <div className="space-y-6">
+            <div className="flex items-center gap-4 text-sm font-bold text-gray-400">
+              <Code2 className="text-cyan-500" size={20} />
+              <span>Advanced Graph Visualizations</span>
             </div>
-          )}
+            <div className="flex items-center gap-4 text-sm font-bold text-gray-400">
+              <ShieldCheck className="text-cyan-500" size={20} />
+              <span>Secure Multi-Factor Access</span>
+            </div>
+          </div>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Names */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-gray-500 ml-1">First Name</label>
-                <div className="relative group">
-                  <User className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.firstName ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
+        {/* Right Side: Signup Form with Glassmorphism Card */}
+        <div className="flex-1 flex items-center justify-center p-8 z-10 overflow-y-auto custom-scrollbar backdrop-blur-[2px]">
+          <div className="w-full max-w-md space-y-8 bg-black/40 p-10 rounded-3xl border border-white/5 shadow-2xl backdrop-blur-xl my-auto">
+            <div className="text-center lg:text-left">
+              <h2 className="text-3xl font-black text-white tracking-tight uppercase">Developer Account</h2>
+              <p className="text-gray-500 text-sm font-bold mt-2 uppercase tracking-widest">Join the CodeVerse Workspace</p>
+            </div>
+
+            {serverError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-[10px] font-black uppercase text-center animate-in fade-in zoom-in">
+                {serverError}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500 ml-1">First Name</label>
+                  <div className="relative group">
+                    <User className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.firstName ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
+                    <input
+                      type="text"
+                      placeholder="Jane"
+                      value={firstName}
+                      onChange={(e) => {setFirstName(e.target.value); setErrors({...errors, firstName: ""})}}
+                      className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all text-white ${errors.firstName ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
+                    />
+                  </div>
+                  <ErrorMsg msg={errors.firstName} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Last Name</label>
                   <input
                     type="text"
-                    placeholder="Jane"
-                    value={firstName}
-                    onChange={(e) => {setFirstName(e.target.value); setErrors({...errors, firstName: ""})}}
-                    className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all ${errors.firstName ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
+                    placeholder="Smith"
+                    value={lastName}
+                    onChange={(e) => {setLastName(e.target.value); setErrors({...errors, lastName: ""})}}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-5 py-3 text-sm outline-none transition-all text-white ${errors.lastName ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
+                  />
+                  <ErrorMsg msg={errors.lastName} />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Work Email</label>
+                <div className="relative group">
+                  <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.email ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
+                  <input
+                    type="email"
+                    placeholder="jane.s@company.io"
+                    value={email}
+                    onChange={(e) => {setEmail(e.target.value); setErrors({...errors, email: ""})}}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all text-white ${errors.email ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
                   />
                 </div>
-                <ErrorMsg msg={errors.firstName} />
+                <ErrorMsg msg={errors.email} />
               </div>
+
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Last Name</label>
-                <input
-                  type="text"
-                  placeholder="Smith"
-                  value={lastName}
-                  onChange={(e) => {setLastName(e.target.value); setErrors({...errors, lastName: ""})}}
-                  className={`w-full bg-white/[0.03] border rounded-xl px-5 py-3 text-sm outline-none transition-all ${errors.lastName ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
-                />
-                <ErrorMsg msg={errors.lastName} />
+                <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Password</label>
+                <div className="relative group">
+                  <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.password ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => {setPassword(e.target.value); setErrors({...errors, password: "", passwordStrength: ""})}}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all text-white ${errors.password ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
+                  />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors">
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <ErrorMsg msg={errors.password || errors.passwordStrength} />
+                
+                <div className="pt-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-600">Password Strength</span>
+                    <span className={`text-[9px] font-black uppercase tracking-widest ${strength === 4 ? "text-cyan-500" : "text-gray-500"}`}>
+                      {strengthLabels[strength]}
+                    </span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-500 ${strength > i ? strengthColor() : "bg-white/5"}`} />
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Email */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Work Email</label>
-              <div className="relative group">
-                <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.email ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
-                <input
-                  type="email"
-                  placeholder="jane.s@company.io"
-                  value={email}
-                  onChange={(e) => {setEmail(e.target.value); setErrors({...errors, email: ""})}}
-                  className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all ${errors.email ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
-                />
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Confirm Password</label>
+                <div className="relative group">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => {setConfirmPassword(e.target.value); setErrors({...errors, confirmPassword: ""})}}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-5 py-3 text-sm outline-none transition-all text-white ${errors.confirmPassword ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
+                  />
+                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors">
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <ErrorMsg msg={errors.confirmPassword} />
               </div>
-              <ErrorMsg msg={errors.email} />
-            </div>
 
-            {/* Password */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Password</label>
-              <div className="relative group">
-                <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${errors.password ? 'text-red-500' : 'text-gray-600 group-focus-within:text-cyan-500'}`} size={16} />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {setPassword(e.target.value); setErrors({...errors, password: "", passwordStrength: ""})}}
-                  className={`w-full bg-white/[0.03] border rounded-xl px-11 py-3 text-sm outline-none transition-all ${errors.password ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
-                />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors">
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              <div className="flex flex-col gap-1 py-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="terms"
+                    checked={agreeTerms}
+                    onChange={(e) => {setAgreeTerms(e.target.checked); setErrors({...errors, agreeTerms: ""})}}
+                    className={`w-4 h-4 rounded border bg-white/5 checked:bg-cyan-500 transition-all cursor-pointer ${errors.agreeTerms ? 'border-red-500' : 'border-white/10'}`}
+                  />
+                  <label htmlFor="terms" className="text-[10px] font-bold text-gray-500 uppercase tracking-tight cursor-pointer">
+                    I agree to the <span className="text-white underline decoration-cyan-500/50 underline-offset-4">Developer Terms</span>
+                  </label>
+                </div>
+                <ErrorMsg msg={errors.agreeTerms} />
+              </div>
+
+              <div className="pt-4 space-y-4">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-white/5 disabled:text-gray-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-cyan-900/20 flex items-center justify-center gap-3"
+                >
+                  {submitting ? (
+                    <><Loader2 className="animate-spin" size={16} /> Initializing...</>
+                  ) : (
+                    <>Create Developer Account <ChevronRight size={16} /></>
+                  )}
                 </button>
+                <p className="text-center text-[10px] font-black uppercase tracking-widest text-gray-600">
+                  Already registered? <Link to="/login" className="text-cyan-500 hover:text-cyan-400 transition-colors">Sign In</Link>
+                </p>
               </div>
-              <ErrorMsg msg={errors.password || errors.passwordStrength} />
-              
-              {/* Strength Meter */}
-              <div className="pt-2">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-gray-600">Password Strength</span>
-                  <span className={`text-[9px] font-black uppercase tracking-widest ${strength === 4 ? "text-cyan-500" : "text-gray-500"}`}>
-                    {strengthLabels[strength]}
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-500 ${strength > i ? strengthColor() : "bg-white/5"}`} />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Confirm Password */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Confirm Password</label>
-              <div className="relative group">
-                <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => {setConfirmPassword(e.target.value); setErrors({...errors, confirmPassword: ""})}}
-                  className={`w-full bg-white/[0.03] border rounded-xl px-5 py-3 text-sm outline-none transition-all ${errors.confirmPassword ? 'border-red-500/50 focus:border-red-500' : 'border-white/10 focus:border-cyan-500/50'}`}
-                />
-              </div>
-              <ErrorMsg msg={errors.confirmPassword} />
-            </div>
-
-            {/* Terms */}
-            <div className="flex flex-col gap-1 py-2">
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="terms"
-                  checked={agreeTerms}
-                  onChange={(e) => {setAgreeTerms(e.target.checked); setErrors({...errors, agreeTerms: ""})}}
-                  className={`w-4 h-4 rounded border bg-white/5 checked:bg-cyan-500 transition-all cursor-pointer ${errors.agreeTerms ? 'border-red-500' : 'border-white/10'}`}
-                />
-                <label htmlFor="terms" className="text-[10px] font-bold text-gray-500 uppercase tracking-tight cursor-pointer">
-                  I agree to the <span className="text-white underline decoration-cyan-500/50 underline-offset-4">Developer Terms</span>
-                </label>
-              </div>
-              <ErrorMsg msg={errors.agreeTerms} />
-            </div>
-
-            {/* Action Buttons */}
-            <div className="pt-4 space-y-4">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-white/5 disabled:text-gray-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-cyan-900/20 flex items-center justify-center gap-3"
-              >
-                {submitting ? (
-                  <><Loader2 className="animate-spin" size={16} /> Initializing...</>
-                ) : (
-                  <>Create Developer Account <ChevronRight size={16} /></>
-                )}
-              </button>
-              <p className="text-center text-[10px] font-black uppercase tracking-widest text-gray-600">
-                 Already registered? <Link to="/login" className="text-cyan-500 hover:text-cyan-400 transition-colors">Sign In</Link>
-              </p>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       </div>
     </div>

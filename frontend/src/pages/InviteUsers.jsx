@@ -12,7 +12,7 @@ import {
   Globe 
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
-import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperNavbar from "../components/AdminNavbar";
 
 const InviteUsers = () => {
   const [email, setEmail] = useState("");

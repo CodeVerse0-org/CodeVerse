@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Search, Plus, Trash2, User, Loader2, ShieldAlert } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
-import DeveloperNavbar from "../components/DeveloperNavbar";
+import DeveloperNavbar from "../components/AdminNavbar";
 
 const UserManagement = () => {
   const navigate = useNavigate();
