@@ -1,34 +1,45 @@
 def build_function_graph(all_functions, all_calls):
     nodes = []
     edges = []
-
-    # Map function names to their full unique IDs for edge resolution
-    name_to_id_map = {f["name"]: f["id"] for f in all_functions}
+    
+    # ID Map for lookups
+    id_map = {f.get("id"): f.get("id") for f in all_functions}
+    name_map = {f.get("name"): f.get("id") for f in all_functions}
 
     for f in all_functions:
+        full_path = f.get("file", "")
+        file_name = full_path.split("/")[-1] if "/" in full_path else full_path
+        func_name = f.get('name', '')
+
+        # Label Format: (FileName (FunctionName))
+        display_label = f"({file_name} ({func_name}))"
+
         nodes.append({
-            "id": f["id"],
+            "id": f.get("id"),
             "data": {
-                "label": f["name"],
-                "category": "function",
-                "file": f["file"],
-                "content": f.get("content", "// Source not available") # CRITICAL: Pass code to frontend
+                "label": display_label,
+                "functionName": func_name,
+                "file": full_path,
+                "content": f.get("content", "")
             }
         })
 
     for call in all_calls:
-        target_name = call["target"]
+        source = call.get("source")
+        target_name = call.get("target")
+        target_file = call.get("target_file")
         
-        # Resolve the call target name (e.g., 'login') to its full ID
-        if target_name in name_to_id_map:
-            target_id = name_to_id_map[target_name]
-            
-            # Avoid self-loops
-            if call["source"] != target_id:
-                edges.append({
-                    "source": call["source"],
-                    "target": target_id,
-                    "label": "CALLS"
-                })
+        target_id = f"{target_file}::{target_name}"
+        
+        # Check if target exists in our project
+        if target_id not in id_map:
+            target_id = name_map.get(target_name)
+
+        if target_id and source != target_id:
+            edges.append({
+                "source": source,
+                "target": target_id,
+                "label": "CALLS"
+            })
 
     return {"nodes": nodes, "dependencies": edges}

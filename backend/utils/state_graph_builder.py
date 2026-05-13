@@ -1,42 +1,93 @@
 def build_state_graph(files):
     nodes = []
     edges = []
-    seen_state_nodes = set()
+    added_nodes = set()
+
+    # UPDATED: node now always stores file only (no prop/context/redux nodes)
+    def add_node(node_id, label, node_type, content=""):
+        if node_id not in added_nodes:
+            nodes.append({
+                "id": node_id,
+                "data": {
+                    "label": label,
+                    "type": node_type,
+                    "content": content
+                }
+            })
+            added_nodes.add(node_id)
+
+    # Map component name → file path + content
+    comp_to_data = {
+        f["path"].split("/")[-1].split(".")[0]: {
+            "path": f["path"],
+            "content": f.get("content", "")
+        }
+        for f in files
+    }
 
     for f in files:
-        file_path = f["path"]
-        file_label = file_path.split("/")[-1]
+        source_path = f["path"]
+        source_label = source_path.split("/")[-1]
+        source_content = f.get("content", "")
 
-        # Add the Component Node
-        nodes.append({
-            "id": file_path,
-            "data": {
-                "label": file_label,
-                "type": "component",
-                "category": "frontend"
-            }
-        })
+        # File node
+        add_node(source_path, source_label, "file", source_content)
 
         for dep in f.get("state_dependencies", []):
-            state_id = f"state_{dep['name']}"
-            
-            # Add the State/Prop Node (if not already added)
-            if state_id not in seen_state_nodes:
-                nodes.append({
-                    "id": state_id,
-                    "data": {
-                        "label": dep['name'],
-                        "type": dep['type'],
-                        "category": "backend" # This triggers the Rose color in your UI
-                    }
+            flow = dep["flow_type"]
+            var = dep["state_name"]
+
+            # =========================
+            # PROPS: File → File (DIRECT)
+            # =========================
+            if flow == "prop":
+                target_comp = dep.get("target_component")
+                target_info = comp_to_data.get(target_comp)
+
+                if target_info:
+                    target_path = target_info["path"]
+                    target_content = target_info["content"]
+
+                    # DIRECT EDGE (no prop node anymore)
+                    edges.append({
+                        "source": source_path,
+                        "target": target_path,
+                        "label": f"PROP ({var})"
+                    })
+
+                    # ensure target exists as file node
+                    add_node(target_path, target_comp, "file", target_content)
+
+            # =========================
+            # CONTEXT: File → File (DIRECT)
+            # =========================
+            elif flow == "context_provider":
+                # provider file just becomes source relationship
+                edges.append({
+                    "source": source_path,
+                    "target": source_path,
+                    "label": f"PROVIDES ({var})"
                 })
-                seen_state_nodes.add(state_id)
 
-            # Create edge from State to Component (Data Flow)
-            edges.append({
-                "source": state_id,
-                "target": file_path,
-                "label": dep['type'].upper()
-            })
+            elif flow == "context_consumer":
+                # consumer stays file-to-file (self or resolved future mapping)
+                edges.append({
+                    "source": source_path,
+                    "target": source_path,
+                    "label": f"CONSUMES ({var})"
+                })
 
-    return {"nodes": nodes, "dependencies": edges}
+            # =========================
+            # REDUX: File → File (DIRECT)
+            # =========================
+            elif flow == "redux":
+                edges.append({
+                    "source": source_path,
+                    "target": source_path,
+                    "label": f"REDUX ({var})"
+                })
+
+    return {
+        "nodes": nodes,
+        "dependencies": edges
+    }

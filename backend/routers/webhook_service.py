@@ -8,7 +8,6 @@ from services.socket_service import sio
 
 router = APIRouter()
 
-
 @router.post("/api/github/webhook")
 async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
@@ -57,7 +56,6 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         notifications = []
 
         for link in links:
-
             # validate user exists
             user = db.query(User).filter(User.id == link.user_id).first()
             if not user:
@@ -75,14 +73,15 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                 )
             )
 
-        db.add_all(notifications)
-        db.commit()
-
-        print("✅ Notifications saved")
+        if notifications:
+            db.add_all(notifications)
+            db.commit()
+            print("✅ Notifications saved")
 
         # -------------------
         # SOCKET EMIT
         # -------------------
+        # Note: Ensure sio is an AsyncServer instance
         await sio.emit(
             "repo_updated",
             {
@@ -100,4 +99,6 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
     except Exception as e:
         print("❌ WEBHOOK ERROR:", str(e))
+        # Rollback DB in case of error during commit
+        db.rollback()
         return {"status": "error", "message": str(e)}

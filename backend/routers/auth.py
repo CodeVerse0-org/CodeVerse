@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from fastapi.security import OAuth2PasswordBearer
 from schemas.auth import SignupRequest, LoginRequest
+from typing import Optional
 from db.connection import get_db
 from utils.security import (
     hash_password,
@@ -15,7 +16,9 @@ from datetime import datetime, timedelta
 import random
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+# ✅ CRITICAL CHANGE: Added auto_error=False to stop FastAPI from auto-rejecting missing tokens
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 @router.post("/signup-initiate")
 def signup_initiate(data: SignupRequest):
@@ -25,7 +28,6 @@ def signup_initiate(data: SignupRequest):
             otp = str(random.randint(100000, 999999))
             expires_at = datetime.utcnow() + timedelta(minutes=10)
 
-            # 1. Insert the user record (Verification remains FALSE)
             cur.execute("""
                 INSERT INTO users (
                     email, first_name, last_name, password_hash, role,
@@ -46,11 +48,9 @@ def signup_initiate(data: SignupRequest):
 
             user_id = cur.fetchone()
             
-            # 2. Attempt to send the email BEFORE committing to the DB
             try:
                 send_otp_email(data.email, otp)
             except Exception as e:
-                # If email fails, we rollback the DB insert so we don't have a 'ghost' user
                 conn.rollback()
                 print(f"❌ Email Dispatch Failed: {e}")
                 raise HTTPException(
@@ -58,7 +58,6 @@ def signup_initiate(data: SignupRequest):
                     detail="Authentication server could not send verification email."
                 )
 
-            # 3. If email is successful, commit the database changes
             conn.commit()
             return {
                 "message": "Verification code sent to email",
@@ -76,6 +75,7 @@ def signup_initiate(data: SignupRequest):
     finally:
         if conn:
             conn.close()
+
 
 @router.post("/login")
 def login(data: LoginRequest):
@@ -101,7 +101,6 @@ def login(data: LoginRequest):
             if not email_verified:
                 raise HTTPException(status_code=403, detail="Please verify your email before login")
 
-            # 4. MFA Logic: Check if MFA is required
             if mfa_enabled:
                 return {
                     "mfa_required": True,
@@ -109,7 +108,6 @@ def login(data: LoginRequest):
                     "message": "Two-factor authentication required"
                 }
 
-            # 5. Direct Token Generation (No MFA required)
             access_token = create_access_token({
                 "sub": str(user_id),
                 "role": role
@@ -132,7 +130,7 @@ def verify_mfa(user_id: int, token: str):
         with conn.cursor() as cur:
             cur.execute("SELECT mfa_secret, role FROM users WHERE id=%s", (user_id,))
             user = cur.fetchone()
-            if not user or not user:
+            if not user:
                 raise HTTPException(status_code=404, detail="MFA not set up for this user")
 
             mfa_secret, role = user
@@ -153,6 +151,9 @@ def verify_mfa(user_id: int, token: str):
 
 @router.get("/me")
 def get_current_user(token: str = Depends(oauth2_scheme)):
+    # Since auto_error is False, we check manually for strict routes
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = decode_access_token(token)
     except Exception:
@@ -167,12 +168,31 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
             return {
-                "id": user, 
-                "first_name": user, 
-                "last_name": user, 
-                "email": user, 
-                "role": user
+                "id": user[0], 
+                "first_name": user[1], 
+                "last_name": user[2], 
+                "email": user[3], 
+                "role": user[4]
             }
     finally:
         if conn:
             conn.close()
+
+# ✅ CRITICAL CHANGE: Updated get_optional_user logic
+def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)):
+    """
+    Returns user data if token is present/valid, otherwise returns Guest.
+    This replaces the 401 with a fallback 'public_user' identity.
+    """
+    # Check for empty tokens or string versions of null sent by frontend
+    if not token or token in ["null", "undefined", "None"]:
+        return {"id": "public_user", "role": "guest"}
+    
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        role = payload.get("role", "user")
+        return {"id": user_id, "role": role, "token": token}
+    except Exception:
+        # If token exists but is invalid/expired, still treat as guest
+        return {"id": "public_user", "role": "guest"}

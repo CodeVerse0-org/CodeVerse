@@ -77,7 +77,7 @@ const App = () => {
     <div className="relative min-h-screen">
       
       {/* 🔥 GLOBAL SESSION HANDLER */}
-      <SessionTimeoutHandler timeoutLimit={120000} />
+      {/*<SessionTimeoutHandler timeoutLimit={120000} />*/}
 
       <Routes>
         {/* --- Public & Authentication Routes --- */}
@@ -120,6 +120,10 @@ const App = () => {
         <Route path="/visualization/:owner/:repo" element={<VisualizationPage />} />
         <Route path="/graph-visualizer/:owner/:repo" element={<VisualizationPage />} />
         <Route path="/summaries" element={<FileSummary />} /> 
+        <Route
+  path="/graph-visualizer/:owner/:repo"
+  element={<GraphVisualizerPage />}
+/>
         <Route path="/chatbot" element={<ChatPage />} />
         <Route path="/chatbot-selection" element={<ChatbotRepoSelectionPage />} />
         <Route path="/analyze-repo" element={<AnalyzeProject />} />

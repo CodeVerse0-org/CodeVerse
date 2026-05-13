@@ -1,75 +1,105 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
+import { Loader2, ArrowLeft, Files, GitBranch, Share2 } from "lucide-react";
 import ForceGraph2D from "react-force-graph-2d";
 
 const GraphVisualizerPage = () => {
+  const { owner, repo } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const repoName = searchParams.get("repo");
-  const timestamp = searchParams.get("timestamp");
-  const graphTypeParam = searchParams.get("graphType") || "file";
-
-  const [graphType, setGraphType] = useState(graphTypeParam);
+  const repoName = `${owner}/${repo}`;
+  const timestamp = searchParams.get("timestamp"); // Optional for history
+  const [graphType, setGraphType] = useState("file"); // Default to file
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
 
-  const fetchGraph = useCallback(async () => {
-    setLoading(true);
+  // ... (imports remain the same)
 
-    try {
-      const token = localStorage.getItem("token");
+// ... (imports remain the same)
 
-      const url = `http://localhost:8000/api/repos/graph-history/${repoName}?graph_type=${graphType}&timestamp=${timestamp}`;
+const fetchGraph = useCallback(async () => {
+  setLoading(true);
 
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+  try {
+    const token = localStorage.getItem("token");
 
-      const data = await res.json();
+    const url = `http://localhost:8000/api/repos/graph-history/${owner}/${repo}?graph_type=${graphType}`;
 
-      setGraphData({
-        nodes: data.nodes || [],
-        links: data.links || []
-      });
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
 
-    } catch (err) {
-      console.error("Graph Fetch Error:", err);
-    } finally {
-      setLoading(false);
-    }
+    if (!res.ok) throw new Error("Graph load failed");
 
-  }, [repoName, timestamp, graphType]);
+    const data = await res.json();
 
-  useEffect(() => {
-    fetchGraph();
-  }, [fetchGraph]);
+    setGraphData({
+      nodes: data.nodes || [],
+      links: (data.dependencies || []).map(d => ({
+        source: d.source,
+        target: d.target_full || d.target
+      }))
+    });
 
+  } catch (err) {
+    console.error("Graph error:", err);
+    setGraphData({ nodes: [], links: [] }); // safe fallback
+  } finally {
+    setLoading(false);
+  }
+}, [owner, repo, graphType]);
   return (
-    <div className="h-screen flex flex-col bg-black text-white">
+    <div className="h-screen flex flex-col bg-[#020408] text-white">
+      {/* Header & Controls */}
+      <div className="p-4 flex items-center justify-between border-b border-white/10 bg-[#0d1117]">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate(-1)} className="hover:text-cyan-500 transition-colors">
+            <ArrowLeft />
+          </button>
+          <div>
+            <h2 className="font-bold text-lg">{repoName}</h2>
+            <p className="text-xs text-gray-400 capitalize">Viewing: {graphType} Graph</p>
+          </div>
+        </div>
 
-      <div className="p-4 flex items-center gap-4 border-b">
-        <button onClick={() => navigate(-1)}>
-          <ArrowLeft />
-        </button>
-
-        <div>
-          <h2>{decodeURIComponent(repoName)}</h2>
-          <p className="text-xs text-gray-400">{timestamp}</p>
+        {/* Tab Switcher for 3 Graphs */}
+        <div className="flex bg-black/40 p-1 rounded-lg border border-white/5">
+          {[
+            { id: "file", icon: <Files size={14}/>, label: "File" },
+            { id: "function", icon: <GitBranch size={14}/>, label: "Function" },
+            { id: "state", icon: <Share2 size={14}/>, label: "State" }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setGraphType(tab.id)}
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-all ${
+                graphType === tab.id ? "bg-cyan-500 text-black" : "hover:bg-white/5 text-gray-400"
+              }`}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex-1 relative">
+      <div className="flex-1 relative bg-[radial-gradient(circle_at_center,_#111_0%,_#000_100%)]">
         {loading && (
-          <div className="absolute inset-0 flex justify-center items-center bg-black/60">
-            <Loader2 className="animate-spin" />
+          <div className="absolute inset-0 z-50 flex flex-col justify-center items-center bg-black/60 backdrop-blur-sm">
+            <Loader2 className="animate-spin text-cyan-500 mb-2" size={40} />
+            <p className="text-cyan-500 animate-pulse">Loading {graphType} structure...</p>
           </div>
         )}
 
         <ForceGraph2D
           graphData={graphData}
           nodeLabel={(node) => node.data?.label || node.id}
+          nodeColor={() => "#06b6d4"}
+          linkColor={() => "#ffffff33"}
+          nodeRelSize={6}
+          linkDirectionalParticles={2}
+          linkDirectionalParticleSpeed={0.005}
+          backgroundColor="rgba(0,0,0,0)"
         />
       </div>
     </div>

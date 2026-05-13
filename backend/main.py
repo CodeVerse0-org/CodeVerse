@@ -1,11 +1,16 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 import socketio
 from neo4j import GraphDatabase  # ✅ Required for initialization
+from dotenv import load_dotenv # ✅ Added to ensure .env is loaded
 
 from services.socket_service import sio
+
+# Load environment variables at the very beginning
+load_dotenv()
 
 # Routers
 from routers.auth import router as auth_router
@@ -21,38 +26,48 @@ from routers.chatbot import router as chatbot_router
 from routers.webhook_service import router as webhook_router 
 
 # --------------------
-# FASTAPI APP
+# LIFESPAN (Modern Startup/Shutdown) ✅
 # --------------------
-fastapi_app = FastAPI(
-    title="CodeVerse Backend",
-    default_response_class=ORJSONResponse
-)
-
-# --------------------
-# NEO4J INITIALIZATION ✅ 
-# --------------------
-@fastapi_app.on_event("startup")
-async def startup_event():
-    """Initializes the Neo4j driver on startup and attaches it to app state."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles Neo4j connection lifecycle."""
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "password")
     
+    # --- DEBUG GITHUB TOKEN START ---
+    github_token = os.getenv("GITHUB_TOKEN")
+    print("------------------------------------------")
+    if github_token:
+        print(f"✅ GITHUB_TOKEN Loaded: {github_token[:8]}***")
+    else:
+        print("❌ GITHUB_TOKEN NOT FOUND IN .ENV")
+    print("------------------------------------------")
+    # --- DEBUG GITHUB TOKEN END ---
+
     try:
-        # Attach driver to fastapi_app.state so routers can find it
-        fastapi_app.state.neo4j_driver = GraphDatabase.driver(uri, auth=(user, password))
-        # Verify connection
-        fastapi_app.state.neo4j_driver.verify_connectivity()
+        # Attach driver to app.state so routers can find it
+        app.state.neo4j_driver = GraphDatabase.driver(uri, auth=(user, password))
+        app.state.neo4j_driver.verify_connectivity()
         print("✅ Neo4j Connection Established")
     except Exception as e:
         print(f"❌ Failed to connect to Neo4j: {e}")
-
-@fastapi_app.on_event("shutdown")
-async def shutdown_event():
-    """Closes the Neo4j driver connection on shutdown."""
-    if hasattr(fastapi_app.state, "neo4j_driver"):
-        fastapi_app.state.neo4j_driver.close()
+    
+    yield  # --- App is running ---
+    
+    # Shutdown logic
+    if hasattr(app.state, "neo4j_driver"):
+        app.state.neo4j_driver.close()
         print("Neo4j Driver Connection Closed")
+
+# --------------------
+# FASTAPI APP
+# --------------------
+fastapi_app = FastAPI(
+    title="CodeVerse Backend",
+    default_response_class=ORJSONResponse,
+    lifespan=lifespan  # ✅ Using the modern lifespan manager
+)
 
 # --------------------
 # CORS
@@ -91,8 +106,6 @@ def root():
 # --------------------
 # SOCKET MOUNT (FINAL)
 # --------------------
-# This wraps the FastAPI app. Because the driver is attached to 
-# fastapi_app.state, it will be available to all FastAPI routers.
 app = socketio.ASGIApp(
     socketio_server=sio,
     other_asgi_app=fastapi_app,
