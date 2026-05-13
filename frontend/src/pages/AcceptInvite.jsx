@@ -7,42 +7,47 @@ const AcceptInvite = () => {
   const [loading, setLoading] = useState(true);
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  useEffect(() => {
-    const acceptAndLogin = async () => {
-      const jwt = localStorage.getItem("token");
-      if (!jwt) {
-        // redirect to login if not logged in
-        localStorage.setItem("pendingInviteToken", token);
-        navigate("/login");
-        return;
-      }
+ useEffect(() => {
+  const acceptAndLogin = async () => {
+    const jwt = localStorage.getItem("token");
 
-      try {
-        // Automatically accept invite after login
-        const res = await fetch(`${API_URL}/api/invite/accept/${token}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${jwt}`,
-          },
-          body: JSON.stringify({ user_id: parseInt(JSON.parse(atob(jwt.split(".")[1])).sub, 10) }),
-        });
+    if (!jwt) {
+      localStorage.setItem("pendingInviteToken", token);
+      navigate("/login");
+      return;
+    }
 
-        const data = await res.json();
-        console.log("Invite response:", data);
+    // ✅ Decode JWT to check role
+    const payload = JSON.parse(atob(jwt.split(".")[1]));
+    if (payload.role === "admin") {
+      alert("Please logout from Admin and login as Developer to accept.");
+      localStorage.removeItem("token");
+      navigate("/login");
+      return;
+    }
 
-        alert("Invite accepted! Repositories are now synced.");
+    try {
+      const res = await fetch(`${API_URL}/api/invite/accept/${token}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`, // Back-end will auto-identify the user
+        },
+      });
+
+      if (res.ok) {
+        alert("Success! Repositories linked.");
         navigate("/developerDashboard");
-      } catch (err) {
-        console.error("Invite accept error:", err);
+      } else {
         alert("Failed to accept invite.");
-      } finally {
-        setLoading(false);
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    if (token) acceptAndLogin();
-  }, [token, navigate, API_URL]);
+  if (token) acceptAndLogin();
+}, [token]);
 
   if (loading) {
     return (

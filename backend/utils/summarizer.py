@@ -7,13 +7,55 @@ load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-def generate_file_summary(file_content: str, max_retries=3):
+def generate_file_summary(file_content: str, node_type: str = "file", max_retries=3):
     if not file_content or len(file_content.strip()) < 10:
         return "File is empty or contains no code."
 
     model_id = "gemini-3.1-flash-lite-preview" 
     
-    prompt = f"""
+    # Normalize node_type and check against your specialized prompts
+    # Note: 'state' is the generic type we use in build_state_graph
+    if node_type == "function":
+        prompt_instruction = """
+Explain exactly what this function does, its logic flow, and its return value.
+IMPORTANT: Use exactly two newlines between every section and every bullet point.
+
+**Function Purpose:**
+(One simple sentence describing what this function achieves)
+
+**Logic Flow:**
+
+* (Describe the first part of the logic)
+
+* (Describe the transformation or process)
+
+* (Describe the result)
+
+**Returns:**
+
+* (What does this function output?)
+"""
+    # Updated to include 'state' and fix 'redux' typo
+    elif node_type in ["redux", "prop", "context", "state"]: 
+        prompt_instruction = """
+Identify the purpose of this specific data/prop and describe its type and usage.
+IMPORTANT: Use exactly two newlines between every section and every bullet point.
+
+**Data Purpose:**
+(One sentence explaining why this specific prop or state exists)
+
+**Type & Content:**
+
+* **Type:** (e.g., Object, String, Function)
+
+* **Contains:** (What kind of data is stored here?)
+
+**Data Flow:**
+
+* (How is this data sent or used by other parts of the application?)
+"""
+    else:  # Default 'file' behavior
+        prompt_instruction = """
 Analyze this code and explain it simply. 
 IMPORTANT: Use exactly two newlines between every section and every bullet point.
 
@@ -31,10 +73,11 @@ IMPORTANT: Use exactly two newlines between every section and every bullet point
 **Important Notes:**
 
 * (Key detail)
-
-CODE:
-{file_content}
 """
+
+    prompt = f"{prompt_instruction}\n\nCODE SNIPPET:\n{file_content}"
+
+    # ... rest of your retry logic remains the same ...
 
     for attempt in range(max_retries):
         try:

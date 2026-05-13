@@ -32,7 +32,7 @@ import InviteUsers from "./pages/InviteUsers";
 
 import AcceptInvite from "./pages/AcceptInvite";
 
-import AuditLog from "./pages/AuditLog"; // Added for Audit Log functionality
+
 
 // GitHub & Repos
 
@@ -76,7 +76,8 @@ const App = () => {
   return (
     <div className="relative min-h-screen">
       
-      <SessionTimeoutHandler />
+      {/* 🔥 GLOBAL SESSION HANDLER */}
+      {/*<SessionTimeoutHandler timeoutLimit={120000} />*/}
 
       <Routes>
         {/* --- Public & Authentication Routes --- */}
@@ -103,7 +104,6 @@ const App = () => {
         <Route path="/users" element={<UserManagement />} />
         <Route path="/invite-users" element={<InviteUsers />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/audit-logs" element={<AuditLog />} />
 
         {/* --- Developer Protected Routes --- */}
         <Route path="/developerDashboard" element={<DeveloperDashboard />} />
@@ -120,6 +120,10 @@ const App = () => {
         <Route path="/visualization/:owner/:repo" element={<VisualizationPage />} />
         <Route path="/graph-visualizer/:owner/:repo" element={<VisualizationPage />} />
         <Route path="/summaries" element={<FileSummary />} /> 
+        <Route
+  path="/graph-visualizer/:owner/:repo"
+  element={<GraphVisualizerPage />}
+/>
         <Route path="/chatbot" element={<ChatPage />} />
         <Route path="/chatbot-selection" element={<ChatbotRepoSelectionPage />} />
         <Route path="/analyze-repo" element={<AnalyzeProject />} />

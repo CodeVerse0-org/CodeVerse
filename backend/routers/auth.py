@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from fastapi.security import OAuth2PasswordBearer
 from schemas.auth import SignupRequest, LoginRequest
+from typing import Optional
 from db.connection import get_db
 from utils.security import (
     hash_password,
@@ -10,12 +11,14 @@ from utils.security import (
 )
 from utils.email_utils import send_otp_email
 import psycopg2
+import pyotp
 from datetime import datetime, timedelta
 import random
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
+# ✅ CRITICAL CHANGE: Added auto_error=False to stop FastAPI from auto-rejecting missing tokens
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 @router.post("/signup-initiate")
 def signup_initiate(data: SignupRequest):
@@ -44,20 +47,20 @@ def signup_initiate(data: SignupRequest):
             ))
 
             user_id = cur.fetchone()
-
+            
             try:
                 send_otp_email(data.email, otp)
             except Exception as e:
                 conn.rollback()
+                print(f"❌ Email Dispatch Failed: {e}")
                 raise HTTPException(
-                    status_code=500,
-                    detail="Could not send verification email."
+                    status_code=500, 
+                    detail="Authentication server could not send verification email."
                 )
 
             conn.commit()
-
             return {
-                "message": "Verification code sent",
+                "message": "Verification code sent to email",
                 "user_id": user_id,
                 "email": data.email
             }
@@ -65,7 +68,10 @@ def signup_initiate(data: SignupRequest):
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Email already exists")
-
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise e
     finally:
         if conn:
             conn.close()
@@ -87,69 +93,106 @@ def login(data: LoginRequest):
             if not user:
                 raise HTTPException(status_code=400, detail="Invalid credentials")
 
-            user_id, password_hash, role, email_verified, mfa_enabled, _ = user
+            user_id, password_hash, role, email_verified, mfa_enabled, mfa_secret = user
 
             if not verify_password(data.password, password_hash):
                 raise HTTPException(status_code=400, detail="Invalid credentials")
 
             if not email_verified:
-                raise HTTPException(status_code=403, detail="Verify email first")
+                raise HTTPException(status_code=403, detail="Please verify your email before login")
 
             if mfa_enabled:
                 return {
                     "mfa_required": True,
-                    "user_id": user_id
+                    "user_id": user_id,
+                    "message": "Two-factor authentication required"
                 }
 
             access_token = create_access_token({
                 "sub": str(user_id),
-                "role": role,
-                "mfa_verified": False
+                "role": role
             })
 
             return {
                 "mfa_required": False,
+                "user_id": user_id,
                 "access_token": access_token,
                 "token_type": "bearer"
             }
-
     finally:
         if conn:
             conn.close()
 
+@router.post("/mfa-verify")
+def verify_mfa(user_id: int, token: str):
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT mfa_secret, role FROM users WHERE id=%s", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail="MFA not set up for this user")
+
+            mfa_secret, role = user
+            totp = pyotp.TOTP(mfa_secret)
+
+            if not totp.verify(token, valid_window=1):
+                raise HTTPException(status_code=400, detail="Invalid MFA token")
+
+            access_token = create_access_token({"sub": str(user_id), "role": role})
+
+            return {
+                "access_token": access_token,
+                "token_type": "bearer"
+            }
+    finally:
+        if conn:
+            conn.close()
 
 @router.get("/me")
 def get_current_user(token: str = Depends(oauth2_scheme)):
+    # Since auto_error is False, we check manually for strict routes
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = decode_access_token(token)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     user_id = payload.get("sub")
-    mfa_verified = payload.get("mfa_verified", False)
-
     conn = get_db()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT first_name, last_name, mfa_enabled FROM users WHERE id=%s",
-                (user_id,)
-            )
+            cur.execute("SELECT id, first_name, last_name, email, role FROM users WHERE id=%s", (user_id,))
             user = cur.fetchone()
-
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
-
-            first_name, last_name, mfa_enabled = user
-
-            if mfa_enabled and not mfa_verified:
-                raise HTTPException(status_code=403, detail="MFA required")
-
             return {
-                "first_name": first_name,
-                "last_name": last_name
+                "id": user[0], 
+                "first_name": user[1], 
+                "last_name": user[2], 
+                "email": user[3], 
+                "role": user[4]
             }
-
     finally:
         if conn:
             conn.close()
+
+# ✅ CRITICAL CHANGE: Updated get_optional_user logic
+def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)):
+    """
+    Returns user data if token is present/valid, otherwise returns Guest.
+    This replaces the 401 with a fallback 'public_user' identity.
+    """
+    # Check for empty tokens or string versions of null sent by frontend
+    if not token or token in ["null", "undefined", "None"]:
+        return {"id": "public_user", "role": "guest"}
+    
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        role = payload.get("role", "user")
+        return {"id": user_id, "role": role, "token": token}
+    except Exception:
+        # If token exists but is invalid/expired, still treat as guest
+        return {"id": "public_user", "role": "guest"}

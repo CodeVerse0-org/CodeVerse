@@ -45,7 +45,7 @@ def format_files_with_headings(inventory):
     backend = sorted(inventory["backend"])
 
     def format_list(files):
-        return "\n".join([f"- {f}" for f in files]) if files else "No files found."
+        return "\n".join([f"- {f.split('/')[-1]}" for f in files]) if files else "No files found."
 
     return f"""
 📁 FRONTEND FILES
@@ -86,58 +86,61 @@ def get_exact_file(repo_path, filename):
 def detect_response_mode(msg: str):
     msg = msg.lower()
 
+    if "only code" in msg or "just code" in msg:
+        return "only_code"
+
     if "only explain" in msg or "just explain" in msg or "without code" in msg:
         return "explain_only"
 
-    if "full code" in msg or "show code" in msg:
+    if "full code" in msg or "complete code" in msg:
         return "full_code"
 
-    if "snippet" in msg or "small part" in msg:
-        return "snippet"
+    if "explain" in msg:
+        return "explain"
 
     return "default"
 
-# ================= 🔥 INVALID QUERY FILTER (UPDATED ONLY HERE) ================= #
+# ================= 🔥 NEW: CHUNKING ================= #
+
+def chunk_code(code: str, chunk_size: int = 1200):
+    chunks = []
+    for i in range(0, len(code), chunk_size):
+        chunks.append(code[i:i + chunk_size])
+    return chunks
+
+# ================= 🔥 INVALID QUERY FILTER ================= #
 
 def is_invalid_query(msg: str):
 
     msg_clean = msg.strip().lower()
 
+    # Gibberish/Short detection
     if len(msg_clean) < 3:
         return True
 
-    # too many repeated characters (aaaaaa, !!!!!)
+    # Repeated characters (aaaaa)
     if re.search(r"(.)\1{5,}", msg_clean):
         return True
 
-    # mostly non-alphanumeric (gibberish like ???!!!@@@)
+    # Random character strings/nonsense
     alpha_num_ratio = sum(c.isalnum() for c in msg_clean) / max(len(msg_clean), 1)
     if alpha_num_ratio < 0.5:
         return True
 
-    # no vowels at all → likely gibberish
-    if not re.search(r"[aeiou]", msg_clean):
+    # No vowels usually means gibberish in English
+    if not re.search(r"[aeiouy]", msg_clean) and len(msg_clean) > 5:
         return True
 
     words = msg_clean.split()
-
-    # repeated single-word spam
     if len(set(words)) == 1 and len(words) > 1:
         return True
 
-    # keyboard smash detection
-    if re.fullmatch(r"[a-z]{1,2}\d{2,}|[a-z]{6,}", msg_clean) and len(set(msg_clean)) > 6:
-        return True
-
-    # long meaningless string without spaces
-    if len(words) == 1 and len(msg_clean) > 20 and alpha_num_ratio > 0.9:
-        return True
-
-    # personal / irrelevant questions
+    # Personal/Senseless/Off-topic filter
     personal_keywords = [
         "my name", "your name", "who are you",
         "how are you", "age", "job", "salary",
-        "love", "relationship"
+        "love", "relationship", "weather", "lunch", "dinner",
+        "marry me", "favorite color", "address", "phone number"
     ]
 
     if any(p in msg_clean for p in personal_keywords):
@@ -187,7 +190,7 @@ def build_inventory(repo_path):
 
             low = rel.lower()
 
-            if any(x in low for x in ["frontend", "client", "ui", "components"]):
+            if any(x in low for x in ["frontend", "client", "ui", "components", "src/app", "src/pages"]):
                 inventory["frontend"].add(rel)
 
             elif any(x in low for x in ["backend", "server", "api", "routes", "controllers", "models"]):
@@ -211,28 +214,30 @@ def build_architecture_map(inventory):
 def detect_intent(msg: str):
     msg = msg.lower().strip()
 
-    if msg in ["hi", "hello", "hey"]:
+    # Greetings
+    if msg in ["hi", "hello", "hey", "hello there", "hey hi"]:
         return "greeting"
 
-    if len(msg.split()) < 2:
-        return "unclear"
-
-    if any(x in msg for x in ["file", "files", "list", "show", "give", "tell"]):
-        if "frontend and backend" in msg or "all frontend backend" in msg:
-            return "frontend_backend_all"
-        if "frontend" in msg:
-            return "frontend_files"
-        if "backend" in msg:
-            return "backend_files"
-        if "all" in msg:
-            return "all_files"
-
-    if any(x in msg for x in ["count", "number", "how many"]):
+    # Precise File Count Logic
+    if any(x in msg for x in ["count", "number of", "how many"]):
+        if "frontend" in msg and "backend" in msg:
+            return "frontend_backend_all" # Show totals with headings
         if "frontend" in msg:
             return "frontend_count"
         if "backend" in msg:
             return "backend_count"
         return "file_count"
+
+    # List File Names Logic
+    if any(x in msg for x in ["list", "show", "give", "names", "tell me the files"]):
+        if "frontend" in msg and "backend" in msg:
+            return "frontend_backend_all"
+        if "frontend" in msg:
+            return "frontend_files"
+        if "backend" in msg:
+            return "backend_files"
+        if "all" in msg or "names" in msg:
+            return "all_files"
 
     if "summary" in msg or "overview" in msg:
         if any(x in msg for x in ["repo", "repository", "project"]):
@@ -278,7 +283,7 @@ def generate_summary(repo_path, inventory, llm, arch_map):
 You are a senior software engineer.
 
 TASK:
-Write a clear, human-readable SUMMARY of the repository.
+Write a clear, human-readable SUMMARY of the repository based on the provided data.
 
 CRITICAL RULES:
 - Output MUST be a single coherent paragraph
@@ -302,8 +307,9 @@ async def process_chat_message(repo_name, message, history=None, installation_id
 
     msg = message.strip()
 
+    # Rule 1: Refuse Gibberish or Personal Questions
     if is_invalid_query(msg):
-        return "❌ Your question is not valid for repository analysis. Please ask a clear technical question."
+        return "❌ I am a technical assistant for repository analysis. Please ask a clear, project-related question and avoid gibberish or personal inquiries."
 
     repo_folder = repo_name.replace("/", "_")
     repo_path = f"./temp_repos/{repo_folder}"
@@ -331,50 +337,51 @@ async def process_chat_message(repo_name, message, history=None, installation_id
 
         mode = detect_response_mode(msg)
 
-        trimmed_code = file_content[:6000]
-
-        if mode == "explain_only":
-            prompt = f"""
-You are a senior software engineer.
-
-Explain this code in a clear paragraph.
-Do NOT include code in your response.
-
-CODE:
-{trimmed_code}
-"""
-            explanation = llm.invoke(prompt).content.strip()
-
-            return f"""📄 FILE: {file_path}
-
-🧠 EXPLANATION:
-{explanation}
-"""
+        if mode == "only_code":
+            return file_content[:15000]
 
         if mode == "full_code":
-            return f"""📄 FILE: {file_path}
+            return f"""📄 FILE: {file_path}\n\n{file_content[:15000]}"""
 
-{file_content[:15000]}
+        if mode == "explain_only":
+            chunks = chunk_code(file_content[:6000])
+            explanations = []
+
+            for i, chunk in enumerate(chunks):
+                prompt = f"""
+You are a senior software engineer. Explain this code chunk clearly in a paragraph. DO NOT include any code.
+
+CHUNK:
+{chunk}
 """
+                res = llm.invoke(prompt).content.strip()
+                explanations.append(f"Chunk {i+1}:\n{res}")
 
-        prompt = f"""
-You are a senior software engineer.
+            return f"""📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n{chr(10).join(explanations)}"""
 
-Explain the code clearly.
-Only include small snippets if absolutely necessary.
+        if mode == "explain":
+            chunks = chunk_code(file_content[:6000])
+            explanations = []
 
-CODE:
-{trimmed_code}
+            for i, chunk in enumerate(chunks):
+                prompt = f"""
+You are a senior software engineer. Explain this code chunk clearly. You MAY include very small snippets if needed.
+
+CHUNK:
+{chunk}
 """
+                res = llm.invoke(prompt).content.strip()
+                explanations.append(f"Chunk {i+1}:\n{res}")
+
+            return f"""📄 FILE: {file_path}\n\n🧠 DETAILED EXPLANATION:\n{chr(10).join(explanations)}"""
+
+        trimmed_code = file_content[:6000]
+        prompt = f"""You are a senior software engineer. Explain the code clearly.\n\nCODE:\n{trimmed_code}"""
         explanation = llm.invoke(prompt).content.strip()
 
-        return f"""📄 FILE: {file_path}
+        return f"""📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n{explanation}"""
 
-🧠 EXPLANATION:
-{explanation}
-"""
-
-    # ================= RETRIEVAL INIT ================= #
+    # ================= REST OF YOUR LOGIC (UNCHANGED) ================= #
 
     if repo_name not in sessions or sessions[repo_name].get("retriever") is None:
         if os.path.exists(db_path):
@@ -406,12 +413,11 @@ CODE:
 
     intent = detect_intent(msg)
 
+    # Rule 2: Greetings
     if intent == "greeting":
         return "Hello, how can I assist you?"
 
-    if intent == "unclear":
-        return "Be more specific. Ask something meaningful about the repository."
-
+    # Rule 5: File counting and specific details
     if intent == "file_count":
         return f"{arch_map['total_files']}"
 
@@ -422,6 +428,7 @@ CODE:
         return f"{arch_map['backend_files']}"
 
     if intent == "frontend_backend_all":
+        # Returns names with Headings and counts
         return format_files_with_headings(inventory)
 
     if intent == "all_files":
@@ -443,26 +450,17 @@ CODE:
         if not context:
             return "Not found in repository."
 
-        prompt = f"""
-Explain using repo context.
-
-CONTEXT:
-{context}
-
-QUESTION:
-{msg}
-"""
+        prompt = f"""Explain using repo context only.\n\nCONTEXT:\n{context}\n\nQUESTION:\n{msg}"""
         return llm.invoke(prompt).content.strip()
 
     if intent == "where_used":
         kw = keyword_search(msg, inventory)
         docs = retriever.invoke(msg)
-
         results = list(set(kw + [d.metadata.get("source", "") for d in docs]))
         results = [r for r in results if r]
-
         return "\n".join(results) if results else "Not found in repository."
 
+    # Rule 4: Answer only according to user requirements
     docs = deduplicate(retriever.invoke(msg))
     kw = keyword_search(msg, inventory)
 
@@ -475,13 +473,15 @@ QUESTION:
 You are a senior software engineer assistant.
 
 RULES:
-- Use repository context only
-- Do not hallucinate file structure
+- Answer ONLY according to the developer's requirements provided in the message.
+- Use repository context only.
+- Do not provide information outside of what is requested.
+- Do not hallucinate.
 
 CONTEXT:
 {context}
 
-QUESTION:
+DEVELOPER REQUEST:
 {msg}
 """
 

@@ -9,6 +9,7 @@ router = APIRouter()
 class SummaryRequest(BaseModel):
     file_path: str
     file_content: str
+    node_type: str = "file"  # Added to support file, function, or state/prop types
     regenerate: bool = False
 
 @router.post("/process")
@@ -37,10 +38,8 @@ async def process_summary(request: SummaryRequest, current_user: any = Depends(g
             print(f"🔍 Cache Lookup Error: {e}")
 
     # 2. AI Generation
-    new_summary = generate_file_summary(request.file_content)
-    
-    # Handle specific status flags from the utility
-    new_summary = generate_file_summary(request.file_content)
+    # Passed request.node_type to the utility and removed duplicate call
+    new_summary = generate_file_summary(request.file_content, node_type=request.node_type)
     
     if new_summary == "SERVICE_UNAVAILABLE_RETRY_LATER":
         raise HTTPException(
