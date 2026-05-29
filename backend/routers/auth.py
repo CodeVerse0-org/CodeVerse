@@ -195,4 +195,4 @@ def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)):
         return {"id": user_id, "role": role, "token": token}
     except Exception:
         # If token exists but is invalid/expired, still treat as guest
-        return {"id": "public_user", "role": "guest"}
+        return {"id": "public_user", "role": "guest"} 
