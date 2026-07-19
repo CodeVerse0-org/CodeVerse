@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import pyotp
 from db.connection import get_db
+from services.audit_service import create_audit_log
 
 # ✅ FIXED: use SAME token system
 from utils.security import create_access_token
@@ -63,28 +64,50 @@ def mfa_verify(data: MFAVerifyRequest):
     conn = get_db()
     cur = conn.cursor()
 
+    # Fetch user details and names for the descriptive audit log
     cur.execute(
-        "SELECT mfa_secret, role, email FROM users WHERE id=%s",
+        """
+        SELECT
+            mfa_secret,
+            role,
+            email,
+            first_name,
+            last_name
+        FROM users
+        WHERE id=%s
+        """,
         (data.user_id,)
     )
     row = cur.fetchone()
 
     if not row or not row[0]:
+        cur.close()
+        conn.close()
         raise HTTPException(400, "MFA not initialized")
 
-    secret, role, email = row
+    secret, role, email, first_name, last_name = row
     totp = pyotp.TOTP(secret)
 
     if not totp.verify(data.token, valid_window=1):
+        cur.close()
+        conn.close()
         raise HTTPException(400, "Invalid MFA code")
 
-    # enable MFA
+    # Enable MFA
     cur.execute(
         "UPDATE users SET mfa_enabled=TRUE WHERE id=%s",
         (data.user_id,)
     )
     conn.commit()
 
+    # Clear and accurate audit details
+    create_audit_log(
+        admin_id=data.user_id if role == "admin" else None,
+        actor_id=data.user_id,
+        action="MFA_ENABLED",
+        details=f"{first_name} {last_name} enabled Multi-Factor Authentication"
+    )
+    
     cur.close()
     conn.close()
 
@@ -108,12 +131,38 @@ def mfa_disable(data: MFASetupRequest):
     conn = get_db()
     cur = conn.cursor()
 
+    # Fetch details prior to disabling for logging tracking
+    cur.execute(
+        """
+        SELECT role, first_name, last_name
+        FROM users
+        WHERE id=%s
+        """,
+        (data.user_id,)
+    )
+    user_row = cur.fetchone()
+    
+    if not user_row:
+        cur.close()
+        conn.close()
+        raise HTTPException(404, "User not found")
+        
+    role, first_name, last_name = user_row
+
     cur.execute(
         "UPDATE users SET mfa_enabled=FALSE, mfa_secret=NULL WHERE id=%s",
         (data.user_id,)
     )
-
     conn.commit()
+
+    # Clear and accurate audit details
+    create_audit_log(
+        admin_id=data.user_id if role == "admin" else None,
+        actor_id=data.user_id,
+        action="MFA_DISABLED",
+        details=f"{first_name} {last_name} disabled Multi-Factor Authentication"
+    )
+
     cur.close()
     conn.close()
 

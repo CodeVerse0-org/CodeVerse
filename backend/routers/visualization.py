@@ -17,6 +17,12 @@ from utils.state_dependency_parser import extract_state_dependencies
 from utils.state_graph_builder import build_state_graph
 from db.queries import get_all_user_summaries
 
+# ✅ Added imports for audit logging
+from sqlalchemy.orm import Session
+from db.session import SessionLocal
+from db.models import User, UserRepository
+from services.audit_service import create_audit_log
+
 router = APIRouter(prefix="/api/repos", tags=["Visualization"])
 
 IGNORE_DIRS = {"node_modules", "venv", ".git", "__pycache__", "dist", "build", "target"}
@@ -50,6 +56,42 @@ def safe_session(driver):
         except:
             pass
         return driver.session()
+
+# ---------------- AUDIT LOG HELPER ----------------
+def log_graph_generation(
+    user_id: Any,
+    repo_name: str,
+    graph_type: str
+):
+    # Fallback to prevent processing for generic public actions without valid user profiles
+    if not user_id or str(user_id) == "public_user":
+        return
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            User.id == int(user_id)
+        ).first()
+
+        if not user:
+            return
+
+        user_repo = (
+            db.query(UserRepository)
+            .filter(UserRepository.user_id == int(user_id))
+            .first()
+        )
+
+        create_audit_log(
+            admin_id=None,
+            actor_id=int(user_id),
+            repository_id=user_repo.repo_id if user_repo else None,
+            repository_name=repo_name,
+            action="GRAPH_GENERATED",
+            details=f"{user.first_name} {user.last_name} generated {graph_type} graph for {repo_name}"
+        )
+    finally:
+        db.close()
 
 # ---------------- GET HISTORY LIST ----------------
 @router.get("/history")
@@ -350,6 +392,14 @@ async def generate_graph(
                     if resolved: edges.append({"source": path, "target_full": resolved})
 
         sync_to_neo4j(request.app.state.neo4j_driver, full_repo, nodes, edges, user_id)
+        
+        # ✅ Added file graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="File Dependency"
+        )
+        
         return {"nodes": nodes, "dependencies": edges}
 
 # ---------------- FUNCTION GRAPH GENERATION ----------------
@@ -390,6 +440,14 @@ async def generate_function_graph(
 
         graph = build_function_graph(all_functions_data, all_calls_data)
         sync_functions_to_neo4j(request.app.state.neo4j_driver, full_repo, graph, user_id)
+        
+        # ✅ Added function graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="Function Dependency"
+        )
+        
         return graph
 
 # ---------------- GENERATE ALL GRAPHS ----------------
@@ -665,6 +723,13 @@ async def generate_graphs(
             print("❌ Neo4j Sync Error:")
             print(str(e))
 
+        # ✅ Added single audit entry step for comprehensive generations
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="All Graphs"
+        )
+
         # -------------------------------
         # SUCCESS RESPONSE
         # -------------------------------
@@ -722,4 +787,12 @@ async def generate_state_graph(
 
         graph = build_state_graph(files_data)
         sync_state_graph_to_neo4j(request.app.state.neo4j_driver, full_repo, graph, user_id)
+        
+        # ✅ Added state graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="State Dependency"
+        )
+        
         return graph

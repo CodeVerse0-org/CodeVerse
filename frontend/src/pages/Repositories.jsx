@@ -33,7 +33,9 @@ const Repositories = () => {
     setLoading(true);
     const token = localStorage.getItem("token");
     if (!token) return navigate("/login");
+    console.log("Repositories Token:", token);
     const headers = { Authorization: `Bearer ${token}` };
+    console.log("Repositories Headers:", headers);
 
     try {
       const [statusRes, adminRes] = await Promise.all([
@@ -52,12 +54,20 @@ const Repositories = () => {
         });
 
         if (statusData.connected) {
-          const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
-          if (repoRes.ok) {
-            const repoData = await repoRes.json();
-            setRepos(repoData.repositories || []);
-          }
-        }
+  console.log("Repositories URL:", `${API_URL}/api/github/repositories`);
+
+  const repoRes = await fetch(`${API_URL}/api/github/repositories`, {
+    headers,
+  });
+
+  console.log("Repositories Status:", repoRes.status);
+
+  const repoData = await repoRes.json();
+
+  console.log("Repositories Response:", repoData);
+
+  setRepos(repoData.repositories || []);
+}
       }
     } catch (err) {
       console.error("Fetch error:", err.message);

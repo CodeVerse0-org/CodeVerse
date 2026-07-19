@@ -1,0 +1,219 @@
+CodeVerse
+├── backend
+│   ├── .env
+│   ├── .gitignore
+│   ├── .python-version
+│   ├── config.py
+│   ├── db
+│   │   ├── connection.py
+│   │   ├── maryamali12155_Blog-Platform
+│   │   │   ├── a386657d-2b50-479a-a62f-16fe4b825347
+│   │   │   │   ├── data_level0.bin
+│   │   │   │   ├── header.bin
+│   │   │   │   ├── index_metadata.pickle
+│   │   │   │   ├── length.bin
+│   │   │   │   └── link_lists.bin
+│   │   │   └── chroma.sqlite3
+│   │   ├── models.py
+│   │   ├── queries.py
+│   │   └── session.py
+│   ├── db_cluster-28-09-2025@17-23-20.backup
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── routers
+│   │   ├── auth.py
+│   │   ├── auth_reset.py
+│   │   ├── chatbot.py
+│   │   ├── email_verify.py
+│   │   ├── github.py
+│   │   ├── github_service.py
+│   │   ├── invite.py
+│   │   ├── mfa.py
+│   │   ├── summaries.py
+│   │   ├── users.py
+│   │   ├── visualization.py
+│   │   └── webhook_service.py
+│   ├── schemas
+│   │   └── auth.py
+│   ├── secrets
+│   │   └── codeverse-tool.2026-01-01.private-key.pem
+│   ├── services
+│   │   └── socket_service.py
+│   ├── temp_repos
+│   │   └── maryamali12155_Blog-Platform
+│   │       ├── backend
+│   │       │   ├── .gitIgnore
+│   │       │   ├── package-lock.json
+│   │       │   ├── package.json
+│   │       │   └── src
+│   │       │       ├── config
+│   │       │       │   ├── cloudinary.js
+│   │       │       │   └── dbConnect.js
+│   │       │       ├── controllers
+│   │       │       │   ├── authController.js
+│   │       │       │   ├── commentController.js
+│   │       │       │   ├── notificationController.js
+│   │       │       │   ├── postController.js
+│   │       │       │   └── userController.js
+│   │       │       ├── index.js
+│   │       │       ├── middlewares
+│   │       │       │   └── authMiddleware.js
+│   │       │       ├── models
+│   │       │       │   ├── commentModel.js
+│   │       │       │   ├── notificationModel.js
+│   │       │       │   ├── postModel.js
+│   │       │       │   └── userModel.js
+│   │       │       └── routes
+│   │       │           ├── authRoutes.js
+│   │       │           ├── commentRoutes.js
+│   │       │           ├── notificationRoutes.js
+│   │       │           ├── postRoutes.js
+│   │       │           ├── uploadRoutes.js
+│   │       │           └── userRoutes.js
+│   │       └── frontend
+│   │           ├── .gitignore
+│   │           ├── eslint.config.js
+│   │           ├── index.html
+│   │           ├── package-lock.json
+│   │           ├── package.json
+│   │           ├── public
+│   │           │   └── icon1.png
+│   │           ├── README.md
+│   │           ├── src
+│   │           │   ├── App.jsx
+│   │           │   ├── assets
+│   │           │   │   ├── bgImage.webp
+│   │           │   │   ├── blogging.png
+│   │           │   │   ├── chat.png
+│   │           │   │   ├── heart.png
+│   │           │   │   ├── hearts.png
+│   │           │   │   ├── icon1.png
+│   │           │   │   ├── LLogo.jpg
+│   │           │   │   ├── menu-bar.png
+│   │           │   │   ├── notification-bell.png
+│   │           │   │   ├── options.png
+│   │           │   │   └── profile.png
+│   │           │   ├── components
+│   │           │   │   ├── Account.jsx
+│   │           │   │   ├── AllPosts.jsx
+│   │           │   │   ├── MarkdownEditor.jsx
+│   │           │   │   ├── Navbar.jsx
+│   │           │   │   ├── notify.jsx
+│   │           │   │   ├── PrivateRoute.jsx
+│   │           │   │   ├── Profiles.jsx
+│   │           │   │   ├── SearchBar.jsx
+│   │           │   │   ├── SearchedPosts.jsx
+│   │           │   │   ├── SideBar.jsx
+│   │           │   │   └── Tag.jsx
+│   │           │   ├── Context
+│   │           │   │   ├── MyContext.jsx
+│   │           │   │   └── NotificationContext.jsx
+│   │           │   ├── index.css
+│   │           │   ├── main.jsx
+│   │           │   └── pages
+│   │           │       ├── About.jsx
+│   │           │       ├── CreatePost.jsx
+│   │           │       ├── Home.jsx
+│   │           │       ├── Login.jsx
+│   │           │       ├── MainPage.jsx
+│   │           │       ├── MyPosts.jsx
+│   │           │       ├── Notifications.jsx
+│   │           │       ├── Profile.jsx
+│   │           │       ├── Registration.jsx
+│   │           │       ├── Search.jsx
+│   │           │       ├── SinglePost.jsx
+│   │           │       └── TagPosts.jsx
+│   │           └── vite.config.js
+│   └── utils
+│       ├── ai_service.py
+│       ├── dependency_parser.py
+│       ├── email_utils.py
+│       ├── function_dependency_parser.py
+│       ├── function_graph_builder.py
+│       ├── github_api.py
+│       ├── github_auth.py
+│       ├── graph_builder.py
+│       ├── neo4j_storage.py
+│       ├── security.py
+│       ├── state_dependency_parser.py
+│       ├── state_graph_builder.py
+│       └── summarizer.py
+├── debug.log
+├── frontend
+│   ├── .gitignore
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── public
+│   │   └── vite.svg
+│   ├── README.md
+│   ├── src
+│   │   ├── App.jsx
+│   │   ├── components
+│   │   │   ├── AdminNavbar.jsx
+│   │   │   ├── BubbleNode.jsx
+│   │   │   ├── CallToAction.jsx
+│   │   │   ├── DeveloperNavbar.jsx
+│   │   │   ├── DeveloperSidebar.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   ├── GraphBackground.jsx
+│   │   │   ├── GraphLoader.jsx
+│   │   │   ├── GraphSwitchNavbar.jsx
+│   │   │   ├── Header.jsx
+│   │   │   ├── HeroSection.jsx
+│   │   │   ├── HowItWorks.jsx
+│   │   │   ├── KeyFeatures.jsx
+│   │   │   ├── NodeDetailPanel.jsx
+│   │   │   ├── SessionTimeoutHandler.jsx
+│   │   │   ├── Sidebar.jsx
+│   │   │   └── sockets.jsx
+│   │   ├── images
+│   │   │   ├── bulb.png
+│   │   │   ├── eye.png
+│   │   │   ├── logo.png
+│   │   │   ├── ships.png
+│   │   │   └── stars.png
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   └── pages
+│   │       ├── AcceptInvite.jsx
+│   │       ├── AdminDashboard.jsx
+│   │       ├── AdminSignup.jsx
+│   │       ├── AnalyzeProject.jsx
+│   │       ├── AuditLog.jsx
+│   │       ├── ChatbotRepoSelectionPage.jsx
+│   │       ├── ChatPage.jsx
+│   │       ├── DeveloperDashboard.jsx
+│   │       ├── DeveloperSettings.jsx
+│   │       ├── DeveloperSignup.jsx
+│   │       ├── FileSummaries.jsx
+│   │       ├── FileSummary.jsx
+│   │       ├── FunctionVisualizationPage.jsx
+│   │       ├── GitHubConnect.jsx
+│   │       ├── GitHubConnectCallback.jsx
+│   │       ├── GraphVisualizerPage.jsx
+│   │       ├── HistoryPage.jsx
+│   │       ├── InviteUsers.jsx
+│   │       ├── LandingPage.jsx
+│   │       ├── Login.jsx
+│   │       ├── MFA.jsx
+│   │       ├── MFASetup.jsx
+│   │       ├── ProfilePage.jsx
+│   │       ├── ProjectView.jsx
+│   │       ├── RepoSelectionPage.jsx
+│   │       ├── Repositories.jsx
+│   │       ├── ResetPassword.jsx
+│   │       ├── Settings.jsx
+│   │       ├── StateVisualization.jsx
+│   │       ├── UserManagement.jsx
+│   │       ├── VerifyEmail.jsx
+│   │       ├── VerifyResetOTP.jsx
+│   │       └── VisualizationPage.jsx
+│   ├── vercel.json
+│   └── vite.config.js
+├── package-lock.json
+├── package.json
+├── project_structure.py
+├── project_structure.txt
+└── README.md

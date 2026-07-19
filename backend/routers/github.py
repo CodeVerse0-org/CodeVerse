@@ -69,6 +69,7 @@ def get_github_jwt():
 
 def get_installation_access_token(installation_id: int):
     jwt_token = get_github_jwt()
+
     headers = {
         "Authorization": f"Bearer {jwt_token}",
         "Accept": "application/vnd.github+json",
@@ -78,18 +79,38 @@ def get_installation_access_token(installation_id: int):
     url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
 
     try:
-        resp = requests.post(url, headers=headers, timeout=10)
-        if resp.status_code != 201:
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail="GitHub Token Generation Failed"
-            )
-        return resp.json().get("token")
+        # Fixed: Using httpx Client to prevent SSLEOFError caused by requests/urllib3 connection pooling conflicts
+        with httpx.Client(timeout=20.0) as client:
+            resp = client.post(url, headers=headers)
+
+            if resp.status_code != 201:
+                logger.error(f"GitHub Token Error: {resp.status_code}")
+                logger.error(resp.text)
+
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=resp.text
+                )
+
+            token = resp.json().get("token")
+
+            if not token:
+                raise HTTPException(
+                    status_code=500,
+                    detail="GitHub did not return an installation token."
+                )
+
+            return token
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        logger.error(f"GitHub Auth Error: {str(e)}")
-        raise HTTPException(status_code=502, detail="GitHub API Communication Error")
-
-
+        logger.exception("GitHub Request Error")
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub API Communication Error: {str(e)}"
+        )
 # ---------------- ROUTES ---------------- #
 
 @router.get("/install-url")
@@ -126,24 +147,25 @@ def get_developer_repos(
 
     installation_id = inst[0]
     token = get_installation_access_token(installation_id)
-    # Using 'token' prefix for repo access
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
     results = []
-    for a in assigned:
-        try:
-            resp = requests.get(f"https://api.github.com/repositories/{a.repo_id}", headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                results.append({
-                    "repo_id": a.repo_id,
-                    "repo_name": data.get("name"),
-                    "full_name": data.get("full_name"),
-                    "html_url": data.get("html_url"),
-                    "installation_id": installation_id  # <-- ADDED: Crucial for frontend
-                })
-        except requests.RequestException:
-            continue
+    # Fixed: Using httpx Client to bypass SSL handshake errors on repository fetches
+    with httpx.Client(timeout=10.0) as client:
+        for a in assigned:
+            try:
+                resp = client.get(f"https://api.github.com/repositories/{a.repo_id}", headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    results.append({
+                        "repo_id": a.repo_id,
+                        "repo_name": data.get("name"),
+                        "full_name": data.get("full_name"),
+                        "html_url": data.get("html_url"),
+                        "installation_id": installation_id
+                    })
+            except Exception:
+                continue
 
     return results
 
@@ -188,6 +210,9 @@ def finalize_github_connection(
 
 @router.get("/repositories")
 def get_admin_repos(user_id: int = Depends(get_current_user_id)):
+    print("\n========== /repositories ==========")
+    print("Current user:", user_id)
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -196,39 +221,66 @@ def get_admin_repos(user_id: int = Depends(get_current_user_id)):
             "SELECT installation_id FROM github_installations WHERE admin_user_id=%s",
             (user_id,)
         )
+
         row = cur.fetchone()
 
+        print("Database row:", row)
+
         if not row:
+            print("No installation found")
             return {"repositories": []}
 
-        installation_id = row[0]  # ✅ FIXED
+        installation_id = row[0]
+
+        print("Installation ID:", installation_id)
 
         token = get_installation_access_token(installation_id)
+
+        print("GitHub token generated successfully")
 
         headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github+json"
         }
 
-        resp = requests.get(
-            "https://api.github.com/installation/repositories",
-            headers=headers,
-            timeout=10
-        )
+        print("Calling GitHub API...")
+
+        # Fixed: Switch requests.get to httpx.Client get to mitigate local system SSLEOFError environments
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                "https://api.github.com/installation/repositories",
+                headers=headers
+            )
+
+        print("GitHub status:", resp.status_code)
+
+        if resp.status_code != 200:
+            logger.error(resp.text)
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=resp.text
+            )
+
+        data = resp.json()
+
+        print("Repository count:", len(data.get("repositories", [])))
 
         return {
-            "repositories": resp.json().get("repositories", [])
-            if resp.status_code == 200 else []
+            "repositories": data.get("repositories", [])
         }
+    except HTTPException:
+        raise
 
     except Exception as e:
-        logger.error(f"Fetch Repos Error: {str(e)}")
-        return {"repositories": []}
+        logger.exception("Fetch Repositories Error")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
     finally:
         cur.close()
         conn.close()
-
 
 @router.get("/status")
 def github_status(user_id: int = Depends(get_current_user_id)):
@@ -261,7 +313,7 @@ def disconnect_github(user_id: int = Depends(get_current_user_id)):
         row = cur.fetchone()
 
         if row:
-            installation_id = row[0]  # ✅ FIXED
+            installation_id = row[0]
 
             jwt_token = get_github_jwt()
             headers = {
@@ -273,9 +325,10 @@ def disconnect_github(user_id: int = Depends(get_current_user_id)):
             uninstall_url = f"https://api.github.com/app/installations/{installation_id}"
 
             try:
-                resp = requests.delete(uninstall_url, headers=headers, timeout=10)
+                # Fixed: Use httpx for the final application uninstall endpoint request wrapper safely
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.delete(uninstall_url, headers=headers)
 
-                # ✅ FIXED ERROR LINE
                 if resp.status_code not in (204, 404):
                     logger.error(f"GitHub API Uninstall Failed: {resp.status_code}")
 

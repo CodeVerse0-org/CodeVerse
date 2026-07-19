@@ -25,6 +25,21 @@ from routers.users import router as users_router
 from routers.summaries import router as summaries_router
 from routers.chatbot import router as chatbot_router
 from routers.webhook_service import router as webhook_router 
+from routers.audit_logs import router as audit_logs_router  # ✅ Added to resolve 404 endpoint failure
+
+# --------------------
+# ALLOWED ORIGINS (CORS Setup)
+# --------------------
+ALLOWED_ORIGINS = [
+    "https://code-verse-one.vercel.app",                              # ✅ FIXED: Removed the trailing slash
+    "https://code-verse-hkqffsa3b-code-verse-s-projects.vercel.app",  # Your branch deployment
+    "https://code-verse.vercel.app",  
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+# Configure Socket.IO allowed origins dynamically
+sio._cors_allowed_origins = ALLOWED_ORIGINS
 
 # --------------------
 # LIFESPAN (Modern Startup/Shutdown) ✅
@@ -99,6 +114,7 @@ fastapi_app.include_router(summaries_router, prefix="/api/summaries")
 fastapi_app.include_router(chatbot_router)
 fastapi_app.include_router(visualization_router)
 fastapi_app.include_router(webhook_router)
+fastapi_app.include_router(audit_logs_router)  # ✅ Mounted to listen for /api/audit-logs requests
 
 @fastapi_app.get("/")
 def root():

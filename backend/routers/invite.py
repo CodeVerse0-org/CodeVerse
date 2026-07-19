@@ -1,5 +1,3 @@
-# backend/routers/invite.py
-
 import uuid
 from typing import List
 
@@ -12,6 +10,8 @@ from db.session import get_db
 from db.models import Invitation, UserRepository, User
 from utils.email_utils import send_invitation_email
 from utils.security import decode_access_token
+from services.audit_service import create_audit_log
+from services.socket_service import emit_to_admin
 
 
 # =========================
@@ -19,7 +19,6 @@ from utils.security import decode_access_token
 # =========================
 router = APIRouter(tags=["invite"])
 
-# ✅ FIX 1: DEFINE oauth2_scheme HERE
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
@@ -47,7 +46,11 @@ def get_current_user_id(token: str = Depends(oauth2_scheme)):
 # SEND INVITE
 # =========================
 @router.post("/")
-def send_invite(payload: InviteCreate, db: Session = Depends(get_db)):
+def send_invite(
+    payload: InviteCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
+):
     token = str(uuid.uuid4())
 
     invite = Invitation(
@@ -61,6 +64,14 @@ def send_invite(payload: InviteCreate, db: Session = Depends(get_db)):
         db.add(invite)
         db.commit()
         db.refresh(invite)
+
+        create_audit_log(
+            admin_id=current_user_id,
+            actor_id=current_user_id,
+            action="INVITE_USER",
+            details=f"Invitation sent to {payload.email}"
+        )
+
     except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database save failed")
@@ -79,31 +90,78 @@ def send_invite(payload: InviteCreate, db: Session = Depends(get_db)):
 # ACCEPT INVITE
 # =========================
 @router.post("/accept/{token}")
-def accept_invite(
-    token: str, 
-    db: Session = Depends(get_db), 
-    current_user_id: int = Depends(get_current_user_id) # ✅ Strict Security
+async def accept_invite(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
 ):
     invite = db.query(Invitation).filter(Invitation.token == token).first()
+
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    
+
     if invite.accepted:
         return {"message": "Already accepted"}
 
-    # ✅ Use current_user_id from JWT, not from payload
     user = db.query(User).filter(User.id == current_user_id).first()
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     try:
+        # Determine the target admin workspace context.
+        # If your Invitation schema tracks the creator via an explicit `admin_id` column, use it.
+        # Otherwise, fall back to checking systemic organizational relations dynamically.
+        target_admin_id = getattr(invite, "admin_id", None)
+        
+        if not target_admin_id:
+            # Fallback fallback: look up an active administrator context in the system
+            admin_user = db.query(User).filter(User.role == "admin").first()
+            target_admin_id = admin_user.id if admin_user else current_user_id
+
         for rid in invite.repo_ids:
-            exists = db.query(UserRepository).filter_by(user_id=user.id, repo_id=rid).first()
+            exists = db.query(UserRepository).filter_by(
+                user_id=user.id,
+                repo_id=rid
+            ).first()
+
             if not exists:
-                db.add(UserRepository(user_id=user.id, repo_id=rid))
+                db.add(
+                    UserRepository(
+                        user_id=user.id,
+                        repo_id=rid
+                    )
+                )
 
         invite.accepted = True
         db.commit()
+
+        # --------------------------------
+        # Audit Log (Routed to targeted Admin space)
+        # --------------------------------
+        create_audit_log(
+            admin_id=target_admin_id,
+            actor_id=user.id,
+            action="DEVELOPER_JOINED",
+            target_user_id=user.id,
+            details=f"{user.first_name} {user.last_name} accepted the invitation and gained repository access."
+        )
+
+        # --------------------------------
+        # Real-time notification to admin room
+        # --------------------------------
+        await emit_to_admin(
+            target_admin_id,
+            "admin_notification",
+            {
+                "title": "Invitation Accepted",
+                "message": f"{user.first_name} {user.last_name} joined the project.",
+                "details": "The developer can now access assigned repositories.",
+                "repository": "",
+                "action": "INVITE_ACCEPTED",
+            },
+        )
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -132,7 +190,9 @@ def get_user_management_list(db: Session = Depends(get_db)):
     management_data = []
 
     for dev in active_developers:
-        repo_count = db.query(UserRepository).filter_by(user_id=dev.id).count()
+        repo_count = db.query(UserRepository).filter_by(
+            user_id=dev.id
+        ).count()
 
         management_data.append({
             "id": dev.id,
@@ -162,15 +222,37 @@ def get_user_management_list(db: Session = Depends(get_db)):
 # REVOKE ACCESS
 # =========================
 @router.delete("/revoke/{id}")
-def revoke_access(
+async def revoke_access(
     id: int,
     is_invite: bool = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user_id)
 ):
     try:
         if is_invite:
-            db.query(Invitation).filter(Invitation.id == id).delete()
+            db.query(Invitation).filter(
+                Invitation.id == id
+            ).delete()
+
         else:
+            user_repo = db.query(UserRepository).filter(
+                UserRepository.user_id == id
+            ).first()
+
+            if user_repo:
+                developer = db.query(User).filter(
+                    User.id == id
+                ).first()
+
+                create_audit_log(
+                    admin_id=current_user_id,
+                    actor_id=current_user_id,
+                    target_user_id=id,
+                    repository_id=user_repo.repo_id,
+                    action="REVOKE_REPOSITORY",
+                    details=f"Repository access revoked from {developer.first_name} {developer.last_name}"
+                )
+
             db.query(UserRepository).filter(
                 UserRepository.user_id == id
             ).delete()
