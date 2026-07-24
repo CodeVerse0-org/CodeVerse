@@ -44,6 +44,7 @@ msgpack==1.1.2
 networkx==3.4.2
 numpy==2.2.6
 openai==1.97.1
+google-genai==1.26.0
 packaging==25.0
 passlib==1.7.4
 pillow==11.3.0
