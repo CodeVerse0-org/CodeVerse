@@ -178,7 +178,7 @@ const StateVisualizationContent = () => {
             fullName: n.id,
             category: type,
             color: "#22d3ee",
-            code: n.data?.content || n.data?.code || n.data?.implementation || n.data?.fileContent || "",
+            codeSnippet: n.data?.content || n.data?.code || n.data?.implementation || n.data?.fileContent || "",
             summary: n.data?.summary || "",
             imports: rawEdges.filter((e) => e.source === n.id).map((e) => e.target),
             imports_full: rawEdges.filter((e) => e.source === n.id).map((e) => e.target)
@@ -192,7 +192,8 @@ const StateVisualizationContent = () => {
           id: `edge-${i}`,
           source: String(e.source),
           target: String(e.target),
-          label: "IMPORTS",
+          // ✅ Updated to use the dynamic label from the backend instead of hardcoded "IMPORTS"
+          label: e.label || "STATE_FLOW", 
           animated: true,
           labelStyle: { fill: "#22d3ee", fontWeight: 900, fontSize: 7, textTransform: 'uppercase' },
           style: { stroke: "#22d3ee", strokeWidth: 2 },

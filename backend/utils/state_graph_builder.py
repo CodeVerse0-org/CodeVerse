@@ -3,7 +3,6 @@ def build_state_graph(files):
     edges = []
     added_nodes = set()
 
-    # UPDATED: node now always stores file only (no prop/context/redux nodes)
     def add_node(node_id, label, node_type, content=""):
         if node_id not in added_nodes:
             nodes.append({
@@ -16,76 +15,69 @@ def build_state_graph(files):
             })
             added_nodes.add(node_id)
 
-    # Map component name → file path + content
+    # Map component name → file data
     comp_to_data = {
-        f["path"].split("/")[-1].split(".")[0]: {
-            "path": f["path"],
-            "content": f.get("content", "")
-        }
+        f["path"].split("/")[-1].split(".")[0]: f
         for f in files
     }
+
+    # Map state/context name → origin file path
+    state_origins = {}
+    for f in files:
+        for dep in f.get("state_dependencies", []):
+            if dep["flow_type"] in ["context_provider", "redux_slice_definition"]:
+                state_origins[dep["state_name"]] = f["path"]
 
     for f in files:
         source_path = f["path"]
         source_label = source_path.split("/")[-1]
         source_content = f.get("content", "")
 
-        # File node
+        # Ensure the source node is added with its content
         add_node(source_path, source_label, "file", source_content)
 
         for dep in f.get("state_dependencies", []):
             flow = dep["flow_type"]
             var = dep["state_name"]
 
-            # =========================
-            # PROPS: File → File (DIRECT)
-            # =========================
+            # PROPS: Current File → Child Component File
             if flow == "prop":
                 target_comp = dep.get("target_component")
                 target_info = comp_to_data.get(target_comp)
-
                 if target_info:
-                    target_path = target_info["path"]
-                    target_content = target_info["content"]
-
-                    # DIRECT EDGE (no prop node anymore)
+                    # Add target node first to ensure content is captured
+                    add_node(
+                        target_info["path"], 
+                        target_comp, 
+                        "file", 
+                        target_info.get("content", "")
+                    )
+                    
                     edges.append({
                         "source": source_path,
-                        "target": target_path,
+                        "target": target_info["path"],
                         "label": f"PROP ({var})"
                     })
 
-                    # ensure target exists as file node
-                    add_node(target_path, target_comp, "file", target_content)
-
-            # =========================
-            # CONTEXT: File → File (DIRECT)
-            # =========================
-            elif flow == "context_provider":
-                # provider file just becomes source relationship
-                edges.append({
-                    "source": source_path,
-                    "target": source_path,
-                    "label": f"PROVIDES ({var})"
-                })
-
+            # CONTEXT: Provider File → Consumer File
             elif flow == "context_consumer":
-                # consumer stays file-to-file (self or resolved future mapping)
-                edges.append({
-                    "source": source_path,
-                    "target": source_path,
-                    "label": f"CONSUMES ({var})"
-                })
+                origin_path = state_origins.get(var)
+                if origin_path and origin_path != source_path:
+                    edges.append({
+                        "source": origin_path,
+                        "target": source_path,
+                        "label": f"CONTEXT ({var})"
+                    })
 
-            # =========================
-            # REDUX: File → File (DIRECT)
-            # =========================
+            # REDUX: Slice/Store File → Consumer File
             elif flow == "redux":
-                edges.append({
-                    "source": source_path,
-                    "target": source_path,
-                    "label": f"REDUX ({var})"
-                })
+                origin_path = state_origins.get(var)
+                if origin_path and origin_path != source_path:
+                    edges.append({
+                        "source": origin_path,
+                        "target": source_path,
+                        "label": f"REDUX ({var})"
+                    })
 
     return {
         "nodes": nodes,

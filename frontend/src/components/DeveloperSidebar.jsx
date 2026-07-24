@@ -86,12 +86,6 @@ const DeveloperSidebar = ({ user, isOpen }) => {
             onClick={() => navigate("/visualization/select")} 
           />
           <SidebarItem 
-            icon={<FileText />} 
-            label="Summaries" 
-            active={location.pathname === "/summaries-page"} 
-            onClick={() => navigate("/summaries")} 
-          />
-          <SidebarItem 
     icon={<Terminal />} 
     label="Analyze Repo" 
     active={location.pathname === "/analyze-repo"} 

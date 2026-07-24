@@ -3,102 +3,121 @@ from sqlalchemy.orm import Session
 import json
 
 from db.session import get_db
-from db.models import User, UserRepository, Notification
-from services.socket_service import sio
+from db.models import (
+    User,
+    UserRepository,
+    Notification,
+    Repository,
+    GitHubInstallation,
+)
+
+from services.audit_service import create_audit_log
+from services.socket_service import emit_to_admin, emit_to_developer
 
 router = APIRouter()
+
 
 @router.post("/api/github/webhook")
 async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
-    print("🔥 WEBHOOK RECEIVED")
+    print("\n================ WEBHOOK RECEIVED ================\n")
 
     try:
-        raw_body = await request.body()
 
-        if not raw_body:
-            return {"status": "empty body"}
+        payload = await request.json()
 
-        payload = json.loads(raw_body)
+        print("EVENT:", request.headers.get("X-GitHub-Event"))
 
-        event = request.headers.get("X-GitHub-Event")
-        if event != "push":
-            return {"status": "ignored"}
-
-        # -------------------
-        # EXTRACT DATA
-        # -------------------
         repo = payload.get("repository", {})
+
         repo_id = repo.get("id")
         repo_name = repo.get("name")
-        pusher = payload.get("pusher", {}).get("name")
 
-        print("📁 Repo:", repo_name, repo_id)
+        print("Repo ID:", repo_id)
+        print("Repo Name:", repo_name)
 
-        if not repo_id:
-            return {"status": "missing repo id"}
-
-        # -------------------
-        # GET USERS LINKED TO REPO
-        # -------------------
         links = db.query(UserRepository).filter(
             UserRepository.repo_id == repo_id
         ).all()
 
-        print("👥 USERS FOUND:", len(links))
+        print("FOUND LINKS:", len(links))
 
-        if not links:
-            return {"status": "no linked users"}
-
-        # -------------------
-        # CREATE NOTIFICATIONS
-        # -------------------
-        notifications = []
-
-        for link in links:
-            # validate user exists
-            user = db.query(User).filter(User.id == link.user_id).first()
-            if not user:
-                print(f"❌ USER NOT FOUND: {link.user_id}")
-                continue
-
-            notifications.append(
-                Notification(
-                    user_id=link.user_id,
-                    repo_id=repo_id,
-                    title="Repository Updated",
-                    message=f"{pusher} pushed code to {repo_name}",
-                    event_type="push",
-                    is_read=False
-                )
+        for l in links:
+            print(
+                "Developer:",
+                l.user_id,
+                "Repo:",
+                l.repo_id,
+                "Admin:",
+                l.admin_id,
             )
 
-        if notifications:
-            db.add_all(notifications)
-            db.commit()
-            print("✅ Notifications saved")
+        if len(links) == 0:
+            print("NO USER ASSIGNED TO THIS REPOSITORY")
+            return {"status": "no mapping"}
 
-        # -------------------
-        # SOCKET EMIT
-        # -------------------
-        # Note: Ensure sio is an AsyncServer instance
-        await sio.emit(
-            "repo_updated",
-            {
-                "repoId": repo_id,
-                "repoName": repo_name,
-                "pusher": pusher,
-                "message": f"{pusher} pushed changes"
-            },
-            room=f"repo_{repo_id}"
+        installation = (
+            db.query(GitHubInstallation)
+            .filter(
+                GitHubInstallation.admin_user_id == links[0].admin_id
+            )
+            .first()
         )
 
-        print(f"📡 Emitted to repo_{repo_id}")
+        print("INSTALLATION:", installation)
 
-        return {"status": "success"}
+        for link in links:
+
+            notification = Notification(
+                user_id=link.user_id,
+                repo_id=repo_id,
+                title="Repository Updated",
+                message="New commit pushed.",
+                event_type="push",
+                is_read=False,
+            )
+
+            db.add(notification)
+
+        db.commit()
+
+        print("NOTIFICATIONS INSERTED")
+
+        for link in links:
+
+            await emit_to_developer(
+                link.user_id,
+                "repo_updated",
+                {
+                    "title": "Repository Updated",
+                    "message": "New commit pushed.",
+                },
+            )
+
+            print("SOCKET SENT TO", link.user_id)
+
+        if installation:
+
+            await emit_to_admin(
+                installation.admin_user_id,
+                "admin_notification",
+                {
+                    "title": "Repository Updated",
+                    "message": "Repository updated.",
+                },
+            )
+
+            print("ADMIN SOCKET SENT")
+
+        print("============== FINISHED ==============")
+
+        return {"success": True}
 
     except Exception as e:
-        print("❌ WEBHOOK ERROR:", str(e))
-        # Rollback DB in case of error during commit
+
         db.rollback()
-        return {"status": "error", "message": str(e)}
+
+        print("WEBHOOK ERROR")
+        print(e)
+
+        return {"error": str(e)}

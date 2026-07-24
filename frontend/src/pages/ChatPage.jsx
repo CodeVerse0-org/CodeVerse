@@ -11,7 +11,34 @@ const ChatPage = () => {
   const repoName = searchParams.get("repo") || "";
   const instId = searchParams.get("inst");
 
-  const userId = "rida_fatima_01";
+  // =========================================================
+  // STRICT USER RESOLUTION (Directly targets user ID)
+  // =========================================================
+  const getCurrentUserId = () => {
+    try {
+      // 1. Try retrieving directly from stored user object
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        const resolvedId = parsed.id || parsed.user_id || parsed.userId;
+        if (resolvedId) return String(resolvedId);
+      }
+
+      // 2. Fallback: Parse JWT token `sub` (Matches auth.py str(user_id))
+      const token = localStorage.getItem("token");
+      if (token && token !== "null" && token !== "undefined") {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(window.atob(base64));
+        if (payload.sub) return String(payload.sub);
+      }
+    } catch (e) {
+      console.warn("Could not parse user session:", e);
+    }
+    return null;
+  };
+
+  const userId = getCurrentUserId();
 
   const [sessionId, setSessionId] = useState("");
   const [chats, setChats] = useState([]);
@@ -22,27 +49,34 @@ const ChatPage = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const scrollRef = useRef(null);
-
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
   const activeChat = chats.find((c) => c.id === activeChatId);
   const messages = activeChat?.messages || [];
 
   // ===========================
-  // FETCH HISTORY
+  // FETCH USER HISTORY
   // ===========================
   useEffect(() => {
     const fetchHistory = async () => {
-      if (!repoName) return;
+      if (!repoName || !userId) return;
 
       try {
         const token = localStorage.getItem("token");
         const res = await fetch(
-          `${API_URL}/api/chat/history/${userId}/${encodeURIComponent(repoName)}`,
+          `${API_URL}/api/chat/history/${encodeURIComponent(userId)}/${encodeURIComponent(repoName)}`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
           }
         );
+
+        if (res.status === 401) {
+          navigate("/login");
+          return;
+        }
 
         const data = await res.json();
 
@@ -85,7 +119,7 @@ const ChatPage = () => {
           const restoredChats = Array.from(sessionMap.values());
           setChats(restoredChats);
 
-          const firstSessionId = restoredChats?.id || null;
+          const firstSessionId = restoredChats[0]?.id || null;
           if (firstSessionId) {
             setActiveChatId(firstSessionId);
             setSessionId(firstSessionId);
@@ -100,7 +134,7 @@ const ChatPage = () => {
     };
 
     fetchHistory();
-  }, [repoName]);
+  }, [repoName, userId]);
 
   // ===========================
   // CREATE NEW CHAT
@@ -118,28 +152,30 @@ const ChatPage = () => {
   };
 
   // ===========================
-  // DELETE SESSION (DATABASE + UI)
+  // DELETE SESSION
   // ===========================
   const handleDeleteSession = async (e, idToDelete) => {
-    e.stopPropagation(); // Prevent selecting the chat when clicking delete
-    
+    e.stopPropagation();
+
     if (!window.confirm("Permanently delete this session?")) return;
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/chat/session/${idToDelete}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `${API_URL}/api/chat/session/${idToDelete}?repository=${encodeURIComponent(repoName)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       if (response.ok) {
         setChats((prev) => prev.filter((chat) => chat.id !== idToDelete));
-        
-        // If we deleted the active chat, pick the next available one or create new
+
         if (activeChatId === idToDelete) {
           const remaining = chats.filter((c) => c.id !== idToDelete);
           if (remaining.length > 0) {
-            handleSelectSession(remaining.id);
+            handleSelectSession(remaining[0].id);
           } else {
             createNewChat();
           }
@@ -165,6 +201,9 @@ const ChatPage = () => {
     );
   };
 
+  // ===========================
+  // SEND CHAT MESSAGE
+  // ===========================
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || isTyping) return;
@@ -187,25 +226,30 @@ const ChatPage = () => {
 
     try {
       const token = localStorage.getItem("token");
+
+      const payload = {
+        message: currentInput,
+        repository: repoName,
+        user_id: userId,
+        session_id: sessionId,
+        installation_id: instId || "",
+        history: newMessages.slice(-5),
+      };
+
       const response = await fetch(`${API_URL}/api/chat/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          message: currentInput,
-          repository: repoName,
-          user_id: userId,
-          session_id: sessionId,
-          installation_id: instId,
-          history: newMessages.slice(-5),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       if (response.ok) {
         updateMessages([...newMessages, { role: "assistant", content: data.content }]);
+      } else {
+        console.error("Validation / API Error Details:", data);
       }
     } catch (err) {
       console.error("Chat error:", err);
@@ -227,7 +271,6 @@ const ChatPage = () => {
       <DeveloperNavbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
 
       <div className="flex flex-1 overflow-hidden relative">
-        
         {/* SIDEBAR */}
         <aside
           className={`${
@@ -258,8 +301,7 @@ const ChatPage = () => {
                 >
                   <MessageSquare size={14} className="flex-shrink-0" />
                   <span className="truncate font-medium pr-6">{chat.title}</span>
-                  
-                  {/* DELETE ICON */}
+
                   <button
                     onClick={(e) => handleDeleteSession(e, chat.id)}
                     className="absolute right-3 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
@@ -275,16 +317,14 @@ const ChatPage = () => {
 
         {/* MAIN CHAT */}
         <main className="flex-1 flex flex-col bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-[#0a0f1a] via-[#020408] to-[#020408]">
-          
-          {/* HEADER BAR (Switch Repo) */}
           <div className="flex items-center justify-between px-8 py-4 bg-[#05070a]/50 backdrop-blur-md border-b border-white/5">
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
               <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">{repoName}</span>
             </div>
-            
-            <button 
-              onClick={() => navigate("/chatbot-selection")} // Adjust path to your repo selection page
+
+            <button
+              onClick={() => navigate("/chatbot-selection")}
               className="flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold uppercase tracking-widest transition-all"
             >
               <ArrowLeftRight size={14} className="text-cyan-500" />
@@ -315,7 +355,7 @@ const ChatPage = () => {
                   key={idx}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <div 
+                  <div
                     className={`max-w-[85%] lg:max-w-[80%] p-5 rounded-2xl border ${
                       msg.role === "user"
                         ? "bg-[#0f172a] border-cyan-500/20 text-slate-100"
@@ -323,10 +363,10 @@ const ChatPage = () => {
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2 opacity-40">
-                       {msg.role === "user" ? <Terminal size={12} /> : <Code size={12} />}
-                       <span className="text-[10px] font-mono uppercase tracking-widest">
-                         {msg.role === "user" ? "Developer" : "CodeVerse AI"}
-                       </span>
+                      {msg.role === "user" ? <Terminal size={12} /> : <Code size={12} />}
+                      <span className="text-[10px] font-mono uppercase tracking-widest">
+                        {msg.role === "user" ? "Developer" : "CodeVerse AI"}
+                      </span>
                     </div>
                     <div className="markdown-container text-sm leading-relaxed">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -350,7 +390,6 @@ const ChatPage = () => {
             )}
           </div>
 
-          {/* INPUT FORM */}
           <div className="p-6 md:px-16 lg:px-32 bg-gradient-to-t from-[#020408] to-transparent">
             <form
               onSubmit={handleSendMessage}
@@ -371,7 +410,9 @@ const ChatPage = () => {
         </main>
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
@@ -391,7 +432,9 @@ const ChatPage = () => {
           font-size: 0.85rem;
         }
         .markdown-container p { margin-bottom: 0.75rem; }
-      `}} />
+      `,
+        }}
+      />
     </div>
   );
 };

@@ -17,6 +17,12 @@ from utils.state_dependency_parser import extract_state_dependencies
 from utils.state_graph_builder import build_state_graph
 from db.queries import get_all_user_summaries
 
+# ✅ Added imports for audit logging
+from sqlalchemy.orm import Session
+from db.session import SessionLocal
+from db.models import User, UserRepository
+from services.audit_service import create_audit_log
+
 router = APIRouter(prefix="/api/repos", tags=["Visualization"])
 
 IGNORE_DIRS = {"node_modules", "venv", ".git", "__pycache__", "dist", "build", "target"}
@@ -50,6 +56,42 @@ def safe_session(driver):
         except:
             pass
         return driver.session()
+
+# ---------------- AUDIT LOG HELPER ----------------
+def log_graph_generation(
+    user_id: Any,
+    repo_name: str,
+    graph_type: str
+):
+    # Fallback to prevent processing for generic public actions without valid user profiles
+    if not user_id or str(user_id) == "public_user":
+        return
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            User.id == int(user_id)
+        ).first()
+
+        if not user:
+            return
+
+        user_repo = (
+            db.query(UserRepository)
+            .filter(UserRepository.user_id == int(user_id))
+            .first()
+        )
+
+        create_audit_log(
+            admin_id=None,
+            actor_id=int(user_id),
+            repository_id=user_repo.repo_id if user_repo else None,
+            repository_name=repo_name,
+            action="GRAPH_GENERATED",
+            details=f"{user.first_name} {user.last_name} generated {graph_type} graph for {repo_name}"
+        )
+    finally:
+        db.close()
 
 # ---------------- GET HISTORY LIST ----------------
 @router.get("/history")
@@ -92,6 +134,7 @@ async def get_specific_graph_history(
     full_repo = f"{owner}/{repo}"
     user_id = str(user_data.get("id"))
 
+    # ✅ UPDATED: Added rel.label to the edge collection
     query = """
     MATCH (r:Repository {name: $repo_name, user_id: $user_id})-[:HAS_GRAPH]->(g:Graph {timestamp: $timestamp, type: $type})
     OPTIONAL MATCH (g)-[:HAS_FILE|CONTAINS_FUNCTION|HAS_STATE]->(node)
@@ -108,7 +151,7 @@ async def get_specific_graph_history(
                 type: node.type
             }
         }) as nodes,
-        collect(distinct {source: node.id, target: target.id}) as edges
+        collect(distinct {source: node.id, target: target.id, label: rel.label}) as edges
     """
 
     try:
@@ -286,6 +329,7 @@ def sync_state_graph_to_neo4j(driver, repo_name, graph_data, user_id):
                         "content": force_scalar(n.get("data", {}).get("content") or n.get("content"))
                     } for n in batch])
 
+            # ✅ UPDATED: Added {label: edge.label} to the MERGE relationship
             for i in range(0, len(edges), batch_size):
                 batch = edges[i:i + batch_size]
                 session.run("""
@@ -293,10 +337,11 @@ def sync_state_graph_to_neo4j(driver, repo_name, graph_data, user_id):
                     UNWIND $batch as edge
                     MATCH (g)-[:HAS_STATE]->(source:State {id: edge.source})
                     MATCH (g)-[:HAS_STATE]->(target:State {id: edge.target})
-                    MERGE (source)-[:STATE_FLOW]->(target)
+                    MERGE (source)-[:STATE_FLOW {label: edge.label}]->(target)
                 """, graph_id=graph_id, batch=[{
                         "source": force_scalar(e.get("source")),
-                        "target": force_scalar(e.get("target"))
+                        "target": force_scalar(e.get("target")),
+                        "label": force_scalar(e.get("label")) # ✅ Passes the "PROP (var)" label to Neo4j
                     } for e in batch])
     except Exception as e:
         print(f"❌ Neo4j State Graph Sync Error: {e}")
@@ -347,6 +392,14 @@ async def generate_graph(
                     if resolved: edges.append({"source": path, "target_full": resolved})
 
         sync_to_neo4j(request.app.state.neo4j_driver, full_repo, nodes, edges, user_id)
+        
+        # ✅ Added file graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="File Dependency"
+        )
+        
         return {"nodes": nodes, "dependencies": edges}
 
 # ---------------- FUNCTION GRAPH GENERATION ----------------
@@ -387,6 +440,14 @@ async def generate_function_graph(
 
         graph = build_function_graph(all_functions_data, all_calls_data)
         sync_functions_to_neo4j(request.app.state.neo4j_driver, full_repo, graph, user_id)
+        
+        # ✅ Added function graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="Function Dependency"
+        )
+        
         return graph
 
 # ---------------- GENERATE ALL GRAPHS ----------------
@@ -586,7 +647,7 @@ async def generate_graphs(
                 all_calls_data.extend(calls)
 
                 # -------------------------------
-                # STATE GRAPH
+                # STATE GRAPH snippet construction
                 # -------------------------------
                 state_deps = extract_state_dependencies(
                     raw_code,
@@ -594,10 +655,20 @@ async def generate_graphs(
                 )
 
                 if state_deps:
+                    # ✅ Extract only relevant lines instead of raw_code
+                    relevant_snippets = []
+                    for dep in state_deps:
+                        if "snippet" in dep:
+                            relevant_snippets.append(dep["snippet"])
+                        elif "name" in dep:
+                            relevant_snippets.append(f"// Related: {dep['name']}")
+                    
+                    snippet_content = "\n".join(relevant_snippets) if relevant_snippets else "// Dependencies identified but no snippet available"
+
                     state_files_data.append({
                         "path": path,
                         "state_dependencies": state_deps,
-                        "content": raw_code
+                        "content": snippet_content # ✅ Changed from raw_code
                     })
 
             except Exception as e:
@@ -652,6 +723,13 @@ async def generate_graphs(
             print("❌ Neo4j Sync Error:")
             print(str(e))
 
+        # ✅ Added single audit entry step for comprehensive generations
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="All Graphs"
+        )
+
         # -------------------------------
         # SUCCESS RESPONSE
         # -------------------------------
@@ -691,7 +769,30 @@ async def generate_state_graph(
                 raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8", errors="ignore")
                 state_deps = extract_state_dependencies(raw_code, path)
                 if state_deps:
-                    files_data.append({"path": path, "state_dependencies": state_deps, "content": raw_code})
+                    # ✅ Extract only relevant lines instead of raw_code
+                    relevant_snippets = []
+                    for dep in state_deps:
+                        if "snippet" in dep:
+                            relevant_snippets.append(dep["snippet"])
+                        elif "name" in dep:
+                            relevant_snippets.append(f"// Related: {dep['name']}")
+                    
+                    snippet_content = "\n".join(relevant_snippets) if relevant_snippets else "// No line snippet found"
+
+                    files_data.append({
+                        "path": path, 
+                        "state_dependencies": state_deps, 
+                        "content": snippet_content # ✅ Changed from raw_code
+                    })
 
         graph = build_state_graph(files_data)
         sync_state_graph_to_neo4j(request.app.state.neo4j_driver, full_repo, graph, user_id)
+        
+        # ✅ Added state graph audit log step
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="State Dependency"
+        )
+        
+        return graph

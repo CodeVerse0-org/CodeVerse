@@ -37,29 +37,29 @@ const NodeDetailPanel = ({
 
 
   // ======================================================
-  // FETCH SUMMARY
+  // FETCH SUMMARY - Updated to trigger ONLY on selectedNode
   // ======================================================
 
   useEffect(() => {
-
-    if (activeNode) {
-
+    // Only trigger the request if the node is actually selected (clicked)
+    if (selectedNode) {
       setSummary("");
-
       setError(null);
-
       fetchSummary(false);
-
+    } else {
+      // If no node is selected (just hovering), clear the previous summary
+      setSummary("");
+      setError(null);
     }
-
-  }, [activeNode?.id]);
+  }, [selectedNode?.id]); // Depend on selectedNode.id instead of activeNode.id
 
 
   const fetchSummary = async (
     isRegenerate = false
   ) => {
 
-    if (!activeNode) return;
+    // Ensure we are fetching for the selectedNode
+    if (!selectedNode) return;
 
     setLoading(true);
 
@@ -82,13 +82,13 @@ const NodeDetailPanel = ({
       }
 
 
-      // ✅ SAFE CONTENT PICK
+      // ✅ SAFE CONTENT PICK using selectedNode
       const fileContent =
-        activeNode?.data?.content ||
-        activeNode?.data?.code ||
-        activeNode?.data?.codeSnippet ||
-        activeNode?.data?.implementation ||
-        activeNode?.data?.fileContent ||
+        selectedNode?.data?.content ||
+        selectedNode?.data?.code ||
+        selectedNode?.data?.codeSnippet ||
+        selectedNode?.data?.implementation ||
+        selectedNode?.data?.fileContent ||
         "// Source code not available";
 
 
@@ -97,9 +97,9 @@ const NodeDetailPanel = ({
         "http://localhost:8000/api/summaries/process",
 
         {
-          file_path: activeNode.id,
+          file_path: selectedNode.id,
           file_content: fileContent,
-          node_type: activeNode.data.category || "file", // ✅ Pass the node type to the backend
+          node_type: selectedNode.data.category || "file", // ✅ Pass the node type to the backend
           regenerate: isRegenerate
         },
 
@@ -294,7 +294,7 @@ const NodeDetailPanel = ({
               onClick={() =>
                 fetchSummary(true)
               }
-              disabled={loading}
+              disabled={loading || !selectedNode}
               className="p-1.5 hover:bg-white/10 rounded-lg text-gray-500 hover:text-cyan-400 transition-all cursor-pointer disabled:opacity-30"
             >
 
@@ -343,8 +343,9 @@ const NodeDetailPanel = ({
               <ReactMarkdown>
 
                 {
-                  summary ||
-                  "No analysis available for this file."
+                  selectedNode 
+                    ? (summary || "Processing AI summary...") 
+                    : "Select a node to view AI analysis."
                 }
 
               </ReactMarkdown>

@@ -1,13 +1,14 @@
 import time
 import logging
 from jose import jwt
-import requests
+import httpx
+import asyncio
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from db.models import UserRepository
+
+from db.models import UserRepository, GitHubInstallation, User
 from db.session import get_db as get_sqlalchemy_db
-from db.connection import get_db
 from utils.security import decode_access_token
 from config import settings
 
@@ -20,18 +21,30 @@ GITHUB_APP_SLUG = settings.GITHUB_APP_SLUG
 router = APIRouter(tags=["GitHub"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-def get_current_user_id(token: str = Depends(oauth2_scheme)):
+# Utility function for concurrent file fetching across modules
+async def fetch_file_content(client: httpx.AsyncClient, url: str, headers: dict, semaphore: asyncio.Semaphore):
+    async with semaphore:
+        try:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching {url}: {e}")
+            return None
+
+def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise HTTPException(status_code=401, detail="Invalid token payload")
         return int(user_id)
     except Exception as e:
-        logger.error(f"Auth error: {str(e)}")
+        logger.error(f"Auth validation error: {str(e)}")
         raise HTTPException(status_code=401, detail="Could not validate credentials")
 
-def get_github_jwt():
+def get_github_jwt() -> str:
     if not settings.GITHUB_PRIVATE_KEY:
         raise HTTPException(status_code=500, detail="GitHub Private Key missing")
 
@@ -49,8 +62,9 @@ def get_github_jwt():
         logger.error(f"JWT Encoding Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to encode GitHub JWT")
 
-def get_installation_access_token(installation_id: int):
+def get_installation_access_token(installation_id: int) -> str:
     jwt_token = get_github_jwt()
+
     headers = {
         "Authorization": f"Bearer {jwt_token}",
         "Accept": "application/vnd.github+json",
@@ -60,17 +74,27 @@ def get_installation_access_token(installation_id: int):
     url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
 
     try:
-        resp = requests.post(url, headers=headers, timeout=10)
-        if resp.status_code != 201:
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail="GitHub Token Generation Failed"
-            )
-        return resp.json().get("token")
-    except Exception as e:
-        logger.error(f"GitHub Auth Error: {str(e)}")
-        raise HTTPException(status_code=502, detail="GitHub API Communication Error")
+        with httpx.Client(timeout=20.0) as client:
+            resp = client.post(url, headers=headers)
 
+            if resp.status_code != 201:
+                logger.error(f"GitHub Token Generation Failed ({resp.status_code}): {resp.text}")
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=f"GitHub API Error: {resp.text}"
+                )
+
+            token = resp.json().get("token")
+            if not token:
+                raise HTTPException(status_code=500, detail="GitHub did not return an access token.")
+
+            return token
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("GitHub Token Request Failed")
+        raise HTTPException(status_code=502, detail=f"GitHub API Communication Error: {str(e)}")
 
 # ---------------- ROUTES ---------------- #
 
@@ -79,6 +103,7 @@ def get_install_url(user_id: int = Depends(get_current_user_id)):
     redirect_uri = "http://localhost:5173/github-callback"
     url = f"https://github.com/apps/{GITHUB_APP_SLUG}/installations/new?state={user_id}&redirect_uri={redirect_uri}"
     return {"url": url}
+
 @router.get("/developer/repos")
 def get_developer_repos(
     db: Session = Depends(get_sqlalchemy_db),
@@ -88,200 +113,142 @@ def get_developer_repos(
     if not assigned:
         return []
 
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            SELECT installation_id
-            FROM github_installations
-            ORDER BY id DESC
-            LIMIT 1
-        """)
-        inst = cur.fetchone()
-    finally:
-        cur.close()
-        conn.close()
-
-    if not inst or not inst[0]:
-        return []
-
-    installation_id = inst[0]
-    token = get_installation_access_token(installation_id)
-    # Using 'token' prefix for repo access
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+    # Group repositories by their managing admin_id
+    admin_repos = {}
+    for a in assigned:
+        admin_repos.setdefault(a.admin_id, []).append(a.repo_id)
 
     results = []
-    for a in assigned:
-        try:
-            resp = requests.get(f"https://api.github.com/repositories/{a.repo_id}", headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                results.append({
-                    "repo_id": a.repo_id,
-                    "repo_name": data.get("name"),
-                    "full_name": data.get("full_name"),
-                    "html_url": data.get("html_url"),
-                    "installation_id": installation_id  # <-- ADDED: Crucial for frontend
-                })
-        except requests.RequestException:
-            continue
+    with httpx.Client(timeout=10.0) as client:
+        for admin_id, repo_ids in admin_repos.items():
+            inst = db.query(GitHubInstallation).filter_by(admin_user_id=admin_id).first()
+            if not inst:
+                continue
+
+            try:
+                token = get_installation_access_token(inst.installation_id)
+                headers = {
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github+json"
+                }
+
+                for repo_id in repo_ids:
+                    resp = client.get(f"https://api.github.com/repositories/{repo_id}", headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        results.append({
+                            "repo_id": repo_id,
+                            "repo_name": data.get("name"),
+                            "full_name": data.get("full_name"),
+                            "html_url": data.get("html_url"),
+                            "installation_id": inst.installation_id,
+                            "admin_id": admin_id
+                        })
+            except Exception as e:
+                logger.error(f"Error fetching repos for admin {admin_id}: {e}")
+                continue
 
     return results
 
 @router.post("/finalize")
 def finalize_github_connection(
     installation_id: int = Query(...),
+    db: Session = Depends(get_sqlalchemy_db),
     user_id: int = Depends(get_current_user_id)
 ):
-    conn = get_db()
-    cur = conn.cursor()
-
     try:
-        cur.execute(
-            "DELETE FROM github_installations WHERE admin_user_id=%s",
-            (user_id,)
-        )
+        # Fetch or create the specific installation for THIS admin
+        existing_inst = db.query(GitHubInstallation).filter_by(admin_user_id=user_id).first()
+        
+        if existing_inst:
+            existing_inst.installation_id = installation_id
+            existing_inst.org_id = installation_id
+        else:
+            new_inst = GitHubInstallation(
+                admin_user_id=user_id,
+                org_id=installation_id,
+                installation_id=installation_id
+            )
+            db.add(new_inst)
 
-        cur.execute("""
-            INSERT INTO github_installations (admin_user_id, org_id, installation_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (org_id) DO UPDATE SET installation_id = EXCLUDED.installation_id
-        """, (user_id, installation_id, installation_id))
+        # Mark user as connected
+        user = db.query(User).filter_by(id=user_id).first()
+        if user:
+            user.github_connected = True
 
-        cur.execute(
-            "UPDATE users SET github_connected=TRUE WHERE id=%s",
-            (user_id,)
-        )
-
-        conn.commit()
+        db.commit()
+        return {"status": "success"}
 
     except Exception as e:
-        conn.rollback()
-        logger.error(f"Finalize DB Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database save failed")
-
-    finally:
-        cur.close()
-        conn.close()
-
-    return {"status": "success"}
-
+        db.rollback()
+        logger.error(f"Finalize GitHub Connection Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to save GitHub installation record")
 
 @router.get("/repositories")
-def get_admin_repos(user_id: int = Depends(get_current_user_id)):
-    conn = get_db()
-    cur = conn.cursor()
+def get_admin_repos(
+    db: Session = Depends(get_sqlalchemy_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    inst = db.query(GitHubInstallation).filter_by(admin_user_id=user_id).first()
 
-    try:
-        cur.execute(
-            "SELECT installation_id FROM github_installations WHERE admin_user_id=%s",
-            (user_id,)
-        )
-        row = cur.fetchone()
-
-        if not row:
-            return {"repositories": []}
-
-        installation_id = row[0]  # ✅ FIXED
-
-        token = get_installation_access_token(installation_id)
-
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github+json"
-        }
-
-        resp = requests.get(
-            "https://api.github.com/installation/repositories",
-            headers=headers,
-            timeout=10
-        )
-
-        return {
-            "repositories": resp.json().get("repositories", [])
-            if resp.status_code == 200 else []
-        }
-
-    except Exception as e:
-        logger.error(f"Fetch Repos Error: {str(e)}")
+    if not inst:
         return {"repositories": []}
 
-    finally:
-        cur.close()
-        conn.close()
+    token = get_installation_access_token(inst.installation_id)
 
-
-@router.get("/status")
-def github_status(user_id: int = Depends(get_current_user_id)):
-    conn = get_db()
-    cur = conn.cursor()
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json"
+    }
 
     try:
-        cur.execute(
-            "SELECT github_connected FROM users WHERE id=%s",
-            (user_id,)
-        )
-        row = cur.fetchone()
-        return {"connected": bool(row[0]) if row else False}
-
-    finally:
-        cur.close()
-        conn.close()
-
-
-@router.delete("/disconnect")
-def disconnect_github(user_id: int = Depends(get_current_user_id)):
-    conn = get_db()
-    cur = conn.cursor()
-
-    try:
-        cur.execute(
-            "SELECT installation_id FROM github_installations WHERE admin_user_id=%s",
-            (user_id,)
-        )
-        row = cur.fetchone()
-
-        if row:
-            installation_id = row[0]  # ✅ FIXED
-
-            jwt_token = get_github_jwt()
-            headers = {
-                "Authorization": f"Bearer {jwt_token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            }
-
-            uninstall_url = f"https://api.github.com/app/installations/{installation_id}"
-
-            try:
-                resp = requests.delete(uninstall_url, headers=headers, timeout=10)
-
-                # ✅ FIXED ERROR LINE
-                if resp.status_code not in (204, 404):
-                    logger.error(f"GitHub API Uninstall Failed: {resp.status_code}")
-
-            except Exception as e:
-                logger.error(f"Network error: {str(e)}")
-
-            cur.execute(
-                "DELETE FROM github_installations WHERE admin_user_id=%s",
-                (user_id,)
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                "https://api.github.com/installation/repositories",
+                headers=headers
             )
 
-        cur.execute(
-            "UPDATE users SET github_connected=FALSE WHERE id=%s",
-            (user_id,)
-        )
+        if resp.status_code != 200:
+            logger.error(f"GitHub Repositories Error ({resp.status_code}): {resp.text}")
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-        conn.commit()
+        data = resp.json()
+        return {"repositories": data.get("repositories", [])}
 
-        return {"status": "success", "message": "GitHub disconnected"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Fetch Repositories Exception")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/status")
+def github_status(
+    db: Session = Depends(get_sqlalchemy_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    user = db.query(User).filter_by(id=user_id).first()
+    return {"connected": user.github_connected if user else False}
+
+@router.delete("/disconnect")
+def disconnect_github(
+    db: Session = Depends(get_sqlalchemy_db),
+    user_id: int = Depends(get_current_user_id)
+):
+    try:
+        # 1. Remove ONLY this admin's database record
+        inst = db.query(GitHubInstallation).filter_by(admin_user_id=user_id).first()
+        if inst:
+            db.delete(inst)
+
+        # 2. Update user status
+        user = db.query(User).filter_by(id=user_id).first()
+        if user:
+            user.github_connected = False
+
+        db.commit()
+        return {"status": "success", "message": "GitHub disconnected locally"}
 
     except Exception as e:
-        conn.rollback()
+        db.rollback()
         logger.error(f"Disconnect Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Database error")
-
-    finally:
-        cur.close()
-        conn.close()
+        raise HTTPException(status_code=500, detail="Database operation failed")

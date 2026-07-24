@@ -64,12 +64,22 @@ const InviteUsers = () => {
           setIsConnected(statusData.connected);
 
           if (statusData.connected) {
-            const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
-            if (repoRes.ok) {
-              const repoData = await repoRes.json();
-              setRepos(repoData.repositories || []);
-            }
-          }
+  console.log("Invite URL:", `${API_URL}/api/github/repositories`);
+  console.log("Invite TOKEN:", token);
+  console.log("Invite HEADERS:", headers);
+
+  const repoRes = await fetch(`${API_URL}/api/github/repositories`, {
+    headers,
+  });
+
+  console.log("Invite Status:", repoRes.status);
+
+  const repoData = await repoRes.json();
+
+  console.log("Invite Response:", repoData);
+
+  setRepos(repoData.repositories || []);
+}
         }
       } catch (err) {
         console.error("Invite page fetch error:", err);

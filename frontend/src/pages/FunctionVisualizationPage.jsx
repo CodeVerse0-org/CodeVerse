@@ -211,11 +211,24 @@ const FunctionVisualizationContent = () => {
           <main className="flex-1 relative bg-[#010203]">
             {loading && <GraphLoader />}
             <div className={`w-full h-full transition-opacity duration-1000 ${isDataReady ? "opacity-100" : "opacity-0"}`}>
-              <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodeMouseEnter={(_, n) => setHoveredNode(n)} onNodeMouseLeave={() => setHoveredNode(null)} onNodeClick={(_, n) => setSelectedNode(n)} onPaneClick={() => setSelectedNode(null)} fitView>
+              <ReactFlow 
+                nodes={nodes} 
+                edges={edges} 
+                nodeTypes={nodeTypes} 
+                onNodeMouseEnter={(_, n) => setHoveredNode(n)} 
+                onNodeMouseLeave={() => setHoveredNode(null)} 
+                onNodeClick={(_, n) => setSelectedNode(n)} 
+                onPaneClick={() => setSelectedNode(null)} 
+                fitView
+              >
                 <Background color="#111" variant="dots" />
                 <Controls position="bottom-left" style={{ filter: "invert(1)" }} />
               </ReactFlow>
-              <NodeDetailPanel activeNode={selectedNode || hoveredNode} selectedNode={selectedNode} setSelectedNode={setSelectedNode} />
+              <NodeDetailPanel 
+                activeNode={selectedNode || hoveredNode} 
+                selectedNode={selectedNode} 
+                setSelectedNode={setSelectedNode} 
+              />
             </div>
           </main>
         </div>

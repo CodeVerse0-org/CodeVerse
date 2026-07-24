@@ -4,13 +4,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 import socketio
-from neo4j import GraphDatabase  # ✅ Required for initialization
-from dotenv import load_dotenv # ✅ Added to ensure .env is loaded
-
-from services.socket_service import sio
+from neo4j import GraphDatabase
+from dotenv import load_dotenv
 
 # Load environment variables at the very beginning
 load_dotenv()
+
+# Socket Service
+from services.socket_service import sio
 
 # Routers
 from routers.auth import router as auth_router
@@ -23,10 +24,25 @@ from routers.auth_reset import router as reset_router
 from routers.users import router as users_router
 from routers.summaries import router as summaries_router
 from routers.chatbot import router as chatbot_router
-from routers.webhook_service import router as webhook_router 
+from routers.webhook_service import router as webhook_router
+from routers.audit_logs import router as audit_logs_router
+from routers.notifications import router as notification_router
+# --------------------
+# ALLOWED ORIGINS (CORS Setup)
+# --------------------
+ALLOWED_ORIGINS = [
+    "https://code-verse-one.vercel.app",
+    "https://code-verse-hkqffsa3b-code-verse-s-projects.vercel.app",
+    "https://code-verse.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+# Configure Socket.IO allowed origins dynamically
+sio._cors_allowed_origins = ALLOWED_ORIGINS
 
 # --------------------
-# LIFESPAN (Modern Startup/Shutdown) ✅
+# LIFESPAN (Startup/Shutdown)
 # --------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -66,7 +82,7 @@ async def lifespan(app: FastAPI):
 fastapi_app = FastAPI(
     title="CodeVerse Backend",
     default_response_class=ORJSONResponse,
-    lifespan=lifespan  # ✅ Using the modern lifespan manager
+    lifespan=lifespan
 )
 
 # --------------------
@@ -74,10 +90,7 @@ fastapi_app = FastAPI(
 # --------------------
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,6 +99,7 @@ fastapi_app.add_middleware(
 # --------------------
 # ROUTES
 # --------------------
+# Route mounts: Router prefixes in main.py will register paths correctly
 fastapi_app.include_router(auth_router, prefix="/auth")
 fastapi_app.include_router(email_router, prefix="/auth")
 fastapi_app.include_router(reset_router, prefix="/auth")
@@ -98,6 +112,8 @@ fastapi_app.include_router(summaries_router, prefix="/api/summaries")
 fastapi_app.include_router(chatbot_router)
 fastapi_app.include_router(visualization_router)
 fastapi_app.include_router(webhook_router)
+fastapi_app.include_router(audit_logs_router)
+fastapi_app.include_router(notification_router)
 
 @fastapi_app.get("/")
 def root():
