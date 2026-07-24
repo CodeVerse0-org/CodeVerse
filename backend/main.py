@@ -31,10 +31,9 @@ from routers.notifications import router as notification_router
 # ALLOWED ORIGINS (CORS Setup)
 # --------------------
 ALLOWED_ORIGINS = [
-    "https://code-verse-one.vercel.app",
     "https://code-verse-git-main-code-verse-s-projects.vercel.app",
-    "https://code-verse-hkqffsa3b-code-verse-s-projects.vercel.app",
-    "https://code-verse.vercel.app",
+    "https://code-verse-do54sfbio-code-verse-s-projects.vercel.app",
+    "https://code-verse-one.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173"
 ]
