@@ -13,7 +13,9 @@ const Login = () => {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
+console.log("BACKEND URL:", API_URL);
   const isLoginDisabled = !email || !password || submitting;
 
   // useMemo ensures this component is only created once and doesn't "flash" on state changes
