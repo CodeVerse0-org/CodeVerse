@@ -87,6 +87,8 @@ tqdm==4.67.1
 transformers==4.53.3
 typing-inspection==0.4.1
 typing_extensions==4.14.1
+tree-sitter==0.21.3
+tree-sitter-languages==1.10.2
 urllib3==2.5.0
 uvicorn==0.38.0
 neo4j==5.28.1
