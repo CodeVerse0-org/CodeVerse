@@ -1,4 +1,3 @@
-import os
 import uuid
 from typing import List
 
@@ -16,26 +15,19 @@ from services.socket_service import emit_to_admin
 
 
 # =========================
-# INIT & ENV CONFIG
+# INIT
 # =========================
 router = APIRouter(tags=["invite"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
-
-# Fallback to localhost for dev, but will use FRONTEND_URL when deployed
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-
 
 class InviteCreate(BaseModel):
     email: EmailStr
     repo_ids: List[int]
 
-
 def get_current_user_id(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     return int(payload["sub"])
 
-
-@router.post("", response_model=None)
 @router.post("/")
 def send_invite(
     payload: InviteCreate,
@@ -49,7 +41,7 @@ def send_invite(
         token=token,
         repo_ids=payload.repo_ids,
         accepted=False,
-        admin_id=current_user_id
+        admin_id=current_user_id  # Isolated to current admin
     )
 
     try:
@@ -63,27 +55,18 @@ def send_invite(
             action="INVITE_USER",
             details=f"Invitation sent to {payload.email}"
         )
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database save failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database save failed")
 
-    # Dynamically build link using FRONTEND_URL environment variable
-    clean_frontend_url = FRONTEND_URL.rstrip('/')
-    link = f"{clean_frontend_url}/accept-invite/{token}"
+    link = f"http://localhost:5173/accept-invite/{token}"
 
-    # Attempt email delivery with detailed error handling
     try:
-        send_invitation_email(payload.email.lower(), link)
-        print(f"✅ Invitation email successfully dispatched to {payload.email}")
+        send_invitation_email(payload.email, link)
     except Exception as e:
-        print(f"❌ CRITICAL EMAIL FAILURE: {str(e)}")
-        # Raise HTTP exception so frontend knows email delivery failed
-        raise HTTPException(
-            status_code=500,
-            detail=f"Invitation created, but email failed to send: {str(e)}"
-        )
+        print(f"Email sending failed: {e}")
 
-    return {"message": "Invitation sent successfully", "link": link, "token": token}
+    return {"message": "Invitation sent", "link": link, "token": token}
 
 
 @router.post("/accept/{token}")
