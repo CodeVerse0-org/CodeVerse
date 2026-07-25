@@ -101,7 +101,7 @@ def get_installation_access_token(installation_id: int) -> str:
 @router.get("/install-url")
 def get_install_url(user_id: int = Depends(get_current_user_id)):
     frontend_url = settings.FRONTEND_URL.rstrip("/")
-    redirect_uri = f"{frontend_url}/github-connect-callback"
+    redirect_uri = f"{settings.FRONTEND_URL}/github-connect-callback"
 
     url = (
         f"https://github.com/apps/{GITHUB_APP_SLUG}"

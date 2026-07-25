@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     GITHUB_APP_SLUG: str = os.getenv("GITHUB_APP_SLUG")
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET")
     GITHUB_PRIVATE_KEY_PATH: str = os.getenv("GITHUB_PRIVATE_KEY_PATH")
-    FRONTEND_URL: str
+    FRONTEND_URL: str = "https://code-verse-one.vercel.app"
     @property
     def GITHUB_PRIVATE_KEY(self) -> str:
         # 1. Check if the raw text environment variable is provided directly (Production)
