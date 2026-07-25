@@ -1,17 +1,27 @@
 import smtplib
+import os
 from email.message import EmailMessage
 
 # ------------------------------
-# Gmail SMTP configuration
+# Gmail SMTP Configuration (SSL / Port 465)
 # ------------------------------
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 
-SENDER_EMAIL = "codeverse12345@gmail.com"      # 👈 your Gmail
-SENDER_PASSWORD = "kmpa wehp uubo vohd"          # 👈 Gmail App Password
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "codeverse12345@gmail.com")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "kmpa wehp uubo vohd")
 
 # ------------------------------
-# OTP EMAIL (EXISTING)
+# HELPER TO SEND EMAIL VIA SSL
+# ------------------------------
+def _send_email_ssl(msg: EmailMessage):
+    """Sends an email using SMTP_SSL on port 465 to prevent 'Network is unreachable' errors."""
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15) as server:
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+
+# ------------------------------
+# OTP EMAIL
 # ------------------------------
 def send_otp_email(to_email: str, otp: str):
     msg = EmailMessage()
@@ -34,17 +44,14 @@ If you did not sign up, please ignore this email.
 """)
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
+        _send_email_ssl(msg)
         print(f"✅ OTP email sent to {to_email}")
     except Exception as e:
-        print("❌ OTP email send failed:", e)
+        print(f"❌ OTP email send failed: {e}")
         raise
 
 # ------------------------------
-# INVITATION EMAIL (NEW)
+# INVITATION EMAIL
 # ------------------------------
 def send_invitation_email(to_email: str, invite_link: str):
     msg = EmailMessage()
@@ -67,16 +74,14 @@ If you did not expect this invitation, please ignore this email.
 """)
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
+        _send_email_ssl(msg)
         print(f"✅ Invitation email sent to {to_email}")
     except Exception as e:
-        print("❌ Invitation email send failed:", e)
+        print(f"❌ Invitation email send failed: {e}")
         raise
+
 # ------------------------------
-# RESET PASSWORD OTP EMAIL (NEW)
+# RESET PASSWORD OTP EMAIL
 # ------------------------------
 def send_reset_password_email(to_email: str, otp: str):
     msg = EmailMessage()
@@ -101,11 +106,8 @@ If you did not request this, please ignore this email.
 """)
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
+        _send_email_ssl(msg)
         print(f"✅ Reset password OTP sent to {to_email}")
     except Exception as e:
-        print("❌ Reset password email failed:", e)
+        print(f"❌ Reset password email failed: {e}")
         raise
