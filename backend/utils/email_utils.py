@@ -1,18 +1,34 @@
 import os
 import resend
 
-resend.api_key = os.getenv("MY_KEY")
+MY_KEY = os.getenv("MY_KEY")
 
-FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
+FROM_EMAIL = os.getenv(
+    "FROM_EMAIL",
+    "onboarding@resend.dev"
+)
+
+print("RESEND KEY EXISTS:", MY_KEY is not None)
+print("RESEND KEY START:", MY_KEY[:3] if MY_KEY else None)
+
+resend.api_key = MY_KEY
 
 
 def send_email(to_email: str, subject: str, body: str):
-    resend.Emails.send({
-        "from": FROM_EMAIL,
-        "to": [to_email],
-        "subject": subject,
-        "text": body,
-    })
+    try:
+        response = resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [to_email],
+            "subject": subject,
+            "text": body,
+        })
+
+        print("Email sent:", response)
+        return response
+
+    except Exception as e:
+        print("Email sending failed:", str(e))
+        raise e
 
 
 def send_otp_email(to_email: str, otp: str):
@@ -60,7 +76,7 @@ Hello,
 
 You have been invited to CodeVerse.
 
-Click the link below to accept your invitation:
+Accept your invitation here:
 
 {invite_link}
 
