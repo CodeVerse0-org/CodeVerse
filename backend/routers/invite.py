@@ -13,6 +13,10 @@ from utils.security import decode_access_token
 from services.audit_service import create_audit_log
 from services.socket_service import emit_to_admin
 
+
+# =========================
+# INIT
+# =========================
 router = APIRouter(tags=["invite"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
@@ -24,6 +28,8 @@ def get_current_user_id(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     return int(payload["sub"])
 
+# 👈 Changed @router.post("/") to @router.post("") or @router.post("/")
+@router.post("", response_model=None)
 @router.post("/")
 def send_invite(
     payload: InviteCreate,
@@ -31,12 +37,13 @@ def send_invite(
     current_user_id: int = Depends(get_current_user_id)
 ):
     token = str(uuid.uuid4())
+
     invite = Invitation(
         email=payload.email.lower(),
         token=token,
         repo_ids=payload.repo_ids,
         accepted=False,
-        admin_id=current_user_id  # Isolated to current admin
+        admin_id=current_user_id
     )
 
     try:
@@ -50,11 +57,12 @@ def send_invite(
             action="INVITE_USER",
             details=f"Invitation sent to {payload.email}"
         )
-    except Exception:
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Database save failed")
+        raise HTTPException(status_code=500, detail=f"Database save failed: {str(e)}")
 
     link = f"http://localhost:5173/accept-invite/{token}"
+
     try:
         send_invitation_email(payload.email, link)
     except Exception as e:
@@ -73,6 +81,7 @@ async def accept_invite(
 
     if not invite:
         raise HTTPException(status_code=404, detail="Invitation not found")
+    
     if invite.accepted:
         return {"message": "Already accepted"}
 
