@@ -94,13 +94,13 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    repo_id = Column(Integer) 
+    repo_id = Column(BigInteger, ForeignKey("repositories.id"), nullable=False)
     title = Column(String)
     message = Column(Text)
     event_type = Column(String)
     is_read = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
-
+    
 
 # --------------------------------------------------
 # AUDIT LOGS

@@ -67,6 +67,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                     full_name=repo_full_name,
                     html_url=repo.get("html_url"),
                     private=repo.get("private", False),
+                    admin_id=admin_id,
                 )
             )
             db.commit()

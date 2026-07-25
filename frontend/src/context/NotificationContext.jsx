@@ -48,7 +48,12 @@ export const NotificationProvider = ({ children }) => {
 
   const markAllAsRead = async () => {
     const token = localStorage.getItem("token");
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setNotifications(prev => {
+    if (prev.some(n => n.id === newNotif.id))
+        return prev;
+
+    return [newNotif, ...prev];
+});
 
     try {
       await fetch(`${API_URL}/api/notifications/read-all`, {
