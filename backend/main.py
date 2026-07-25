@@ -34,8 +34,9 @@ ALLOWED_ORIGINS = [
     "https://code-verse-git-main-code-verse-s-projects.vercel.app",
     "https://code-verse-do54sfbio-code-verse-s-projects.vercel.app",
     "https://code-verse-one.vercel.app",
+    "https://code-verse-jf817vdev-code-verse-s-projects.vercel.app",
     "http://localhost:5173",
-    "http://127.0.0.1:5173"
+    "http://127.0.0.1:5173",
 ]
 # Configure Socket.IO allowed origins dynamically
 sio._cors_allowed_origins = ALLOWED_ORIGINS
