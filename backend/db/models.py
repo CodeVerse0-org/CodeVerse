@@ -83,7 +83,7 @@ class Repository(Base):
     full_name = Column(String(255))
     html_url = Column(Text)
     private = Column(Boolean, default=False)
-    admin_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) # Changed nullable=False to True
 
 
 # --------------------------------------------------
