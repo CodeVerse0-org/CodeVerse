@@ -39,6 +39,8 @@ const InviteUsers = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
       const token = localStorage.getItem("token");
       if (!token) return navigate("/login");
@@ -50,24 +52,24 @@ const InviteUsers = () => {
           fetch(`${API_URL}/auth/me`, { headers }),
         ]);
 
-        if (adminRes.ok) {
+        if (adminRes.ok && isMounted) {
           const adminData = await adminRes.json();
           setAdmin({
-            name: `${adminData.first_name} ${adminData.last_name}`,
-            email: adminData.email,
+            name: `${adminData.first_name || ""} ${adminData.last_name || ""}`.trim() || "Admin",
+            email: adminData.email || "",
           });
         }
 
-        if (statusRes.ok) {
+        if (statusRes.ok && isMounted) {
           const statusData = await statusRes.json();
-          setIsConnected(statusData.connected);
+          setIsConnected(Boolean(statusData.connected));
 
           if (statusData.connected) {
             const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
-            if (repoRes.ok) {
+            if (repoRes.ok && isMounted) {
               const repoData = await repoRes.json();
               
-              // 👈 FIXED: Dynamically check if repoData is a raw array or wrapped object
+              // Safely handle both array and object response structures
               if (Array.isArray(repoData)) {
                 setRepos(repoData);
               } else if (Array.isArray(repoData.repositories)) {
@@ -81,12 +83,17 @@ const InviteUsers = () => {
       } catch (err) {
         console.error("Invite page fetch error:", err);
       } finally {
-        // 👈 FIXED: Clean syntax so setLoading(false) always fires
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [navigate, API_URL]);
 
   const toggleRepo = (id) => {
