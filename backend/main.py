@@ -111,6 +111,10 @@ fastapi_app.include_router(github_router, prefix="/api/github")
 fastapi_app.include_router(invite_router, prefix="/api/invite")
 fastapi_app.include_router(users_router, prefix="/api/user")
 fastapi_app.include_router(summaries_router, prefix="/api/summaries")
+# main.py
+
+# Mount visualization_router under prefix /api/repos
+fastapi_app.include_router(visualization_router, prefix="/api/repos", tags=["Visualization"])
 fastapi_app.include_router(chatbot_router)
 fastapi_app.include_router(visualization_router)
 fastapi_app.include_router(webhook_router)

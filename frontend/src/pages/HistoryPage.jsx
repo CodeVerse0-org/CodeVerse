@@ -19,47 +19,48 @@ const HistoryPage = () => {
   const navigate = useNavigate();
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem("token");
-        if (!token) {
-          navigate("/login");
-          return;
-        }
+// HistoryPage.jsx
 
-        // Fetch User context
-        fetch(`${API_URL}/auth/me`, { 
-            headers: { Authorization: `Bearer ${token}` } 
-        })
-        .then(res => res.ok ? res.json() : null)
-        .then(userData => { if(userData) setUser(userData); });
-
-        const endpoint = activeTab === "summaries" ? "/api/repos/summary-history" : "/api/repos/history";
-        
-        const res = await fetch(`${API_URL}${endpoint}`, {
-          method: "GET",
-          headers: { 
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json"
-          }
-        });
-        
-        if (!res.ok) throw new Error(`Server error: ${res.status}`);
-        
-        const data = await res.json();
-        // The backend query handles the DESC sorting
-        setHistoryData(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error("History fetch failed:", err);
-        setHistoryData([]);
-      } finally {
-        setLoading(false);
+useEffect(() => {
+  const fetchHistory = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        navigate("/login");
+        return;
       }
-    };
-    fetchHistory();
-  }, [API_URL, activeTab, navigate]);
+
+      const endpoint = activeTab === "summaries" 
+        ? "/api/repos/summary-history" 
+        : "/api/repos/history";
+      
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: "GET",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
+      });
+      
+      if (!res.ok) {
+        console.warn(`API returned status ${res.status} for ${endpoint}`);
+        setHistoryData([]);
+        return;
+      }
+      
+      const data = await res.json();
+      setHistoryData(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("History fetch failed:", err);
+      setHistoryData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchHistory();
+}, [API_URL, activeTab, navigate]);
 
   const handleLaunchVisualization = (item) => {
     const fullRepo = item.repo_name || "";

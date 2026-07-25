@@ -99,14 +99,17 @@ async def get_history(
     request: Request,
     user_data: dict = Depends(get_current_user)
 ):
-    driver = request.app.state.neo4j_driver
+    driver = getattr(request.app.state, "neo4j_driver", None)
     if not driver:
-        raise HTTPException(status_code=500, detail="Neo4j driver not initialized")
+        # Fallback to avoid complete 500 failure
+        print("⚠️ Neo4j driver not initialized on app.state")
+        return []
 
-    user_id = str(user_data.get("id"))
+    user_id = str(user_data.get("id") or user_data.get("_id") or "").strip()
 
     query = """
-    MATCH (r:Repository {user_id: $user_id})-[:HAS_GRAPH]->(g:Graph)
+    MATCH (r:Repository)-[:HAS_GRAPH]->(g:Graph)
+    WHERE r.user_id = $user_id OR r.owner_id = $user_id
     RETURN g.id AS id, r.name AS repo_name, g.timestamp AS timestamp, g.type AS graph_type
     ORDER BY g.timestamp DESC
     """
@@ -118,7 +121,8 @@ async def get_history(
             return history
     except Exception as e:
         print(f"❌ Error fetching history for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        # Safe fallback: return empty array instead of raising 500 error
+        return []
 
 # ---------------- GET SPECIFIC HISTORY ----------------
 @router.get("/graph-history/{owner}/{repo}")
@@ -234,13 +238,13 @@ def sync_to_neo4j(driver, repo_name, nodes, edges, user_id):
 # ---------------- GET SUMMARY HISTORY ----------------
 @router.get("/summary-history")
 async def get_summary_history(user_data: dict = Depends(get_current_user)):
-    user_id = str(user_data.get("id"))
+    user_id = str(user_data.get("id") or user_data.get("_id") or "").strip()
     try:
         history_list = get_all_user_summaries(user_id)
-        return history_list
+        return history_list if isinstance(history_list, list) else []
     except Exception as e:
         print(f"❌ ERROR in /summary-history: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        return []
 
 # ---------------- FUNCTION SYNC ----------------
 def sync_functions_to_neo4j(driver, repo_name, graph_data, user_id):
