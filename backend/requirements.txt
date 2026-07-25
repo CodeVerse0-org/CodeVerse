@@ -139,7 +139,7 @@ requests-toolbelt==1.0.0
 
 rich==15.0.0
 rsa==4.9.1
-
+resend==2.34.0
 safetensors==0.7.0
 scikit-learn==1.8.0
 scipy==1.17.1
