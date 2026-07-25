@@ -8,7 +8,6 @@ from db.models import (
     User,
     UserRepository,
     Notification,
-    Repository,
     GitHubInstallation
 )
 
@@ -57,23 +56,12 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         )
         admin_id = installation.admin_user_id if installation else None
 
-        # Save Repository if missing
-        existing_repo = db.query(Repository).filter(Repository.id == repo_id).first()
-        if not existing_repo:
-            db.add(
-                Repository(
-                    id=repo_id,
-                    name=repo_name,
-                    full_name=repo_full_name,
-                    html_url=repo.get("html_url"),
-                    private=repo.get("private", False),
-                    admin_id=admin_id,
-                )
-            )
-            db.commit()
-
-        # Find assigned developers
+        # Find assigned developers directly via UserRepository
         links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
+
+        if not links:
+            print(f"ℹ️ No developers assigned to repo_id {repo_id}. Skipping notification dispatch.")
+            return {"status": "ignored - no assigned developers"}
 
         notification_title = "New Commits Pushed"
         notification_msg = f"{pusher} pushed {commit_count} commit(s) to {branch}. Would you like to sync the repo for an updated graph?"
@@ -106,9 +94,9 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
             details=f"{pusher} pushed new commits to {branch}."
         )
 
-        # Emit Realtime Events to Developers
+        # Emit Realtime Events to Assigned Developers
         for user_id, notif in created_notifications:
-            db.refresh(notif)  # Get saved ID
+            db.refresh(notif)  # Retrieve generated notification ID
             await emit_to_developer(
                 user_id,
                 "repo_updated",
