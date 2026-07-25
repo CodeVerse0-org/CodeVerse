@@ -16,9 +16,14 @@ class Settings(BaseSettings):
     GITHUB_APP_SLUG: str = os.getenv("GITHUB_APP_SLUG")
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET")
     GITHUB_PRIVATE_KEY_PATH: str = os.getenv("GITHUB_PRIVATE_KEY_PATH")
-
+    FRONTEND_URL: str
     @property
-    def GITHUB_PRIVATE_KEY(self):
+    def GITHUB_PRIVATE_KEY(self) -> str:
+        # 1. Check if the raw text environment variable is provided directly (Production)
+        if self.GITHUB_PRIVATE_KEY_TEXT:
+            return self.GITHUB_PRIVATE_KEY_TEXT.strip()
+            
+        # 2. Fallback to reading the file path (Local Development)
         if self.GITHUB_PRIVATE_KEY_PATH and os.path.exists(self.GITHUB_PRIVATE_KEY_PATH):
             with open(self.GITHUB_PRIVATE_KEY_PATH, "r") as f:
                 return f.read()

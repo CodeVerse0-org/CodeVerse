@@ -100,10 +100,15 @@ def get_installation_access_token(installation_id: int) -> str:
 
 @router.get("/install-url")
 def get_install_url(user_id: int = Depends(get_current_user_id)):
-    redirect_uri = "http://localhost:5173/github-callback"
-    url = f"https://github.com/apps/{GITHUB_APP_SLUG}/installations/new?state={user_id}&redirect_uri={redirect_uri}"
-    return {"url": url}
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    redirect_uri = f"{frontend_url}/github-connect-callback"
 
+    url = (
+        f"https://github.com/apps/{GITHUB_APP_SLUG}"
+        f"/installations/new?state={user_id}&redirect_uri={redirect_uri}"
+    )
+
+    return {"url": url}
 @router.get("/developer/repos")
 def get_developer_repos(
     db: Session = Depends(get_sqlalchemy_db),
