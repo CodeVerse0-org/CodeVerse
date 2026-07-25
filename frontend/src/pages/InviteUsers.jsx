@@ -27,7 +27,10 @@ const InviteUsers = () => {
   });
 
   const navigate = useNavigate();
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  
+  // Normalize API_URL to force HTTPS when hosted on secure domains
+  const rawApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const API_URL = rawApiUrl.replace(/^http:\/\//i, "https://");
 
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => {
@@ -69,7 +72,6 @@ const InviteUsers = () => {
             if (repoRes.ok && isMounted) {
               const repoData = await repoRes.json();
 
-              // ✅ SAFE ARRAY HANDLING FIX:
               if (Array.isArray(repoData)) {
                 setRepos(repoData);
               } else if (Array.isArray(repoData?.repositories)) {
@@ -82,7 +84,8 @@ const InviteUsers = () => {
         }
       } catch (err) {
         console.error("Invite page fetch error:", err);
-      } finally {
+      }
+      finally {
         if (isMounted) {
           setLoading(false);
         }
@@ -108,7 +111,7 @@ const InviteUsers = () => {
 
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`${API_URL}/api/invite`, {
+      const res = await fetch(`${API_URL}/api/invite/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -126,7 +129,8 @@ const InviteUsers = () => {
         alert(`Error: ${data.detail || "Failed to send invitation."}`);
       }
     } catch (err) {
-      alert("Failed to send invite.");
+      alert("Failed to send invite. Check console for details.");
+      console.error(err);
     }
   };
 
@@ -145,7 +149,6 @@ const InviteUsers = () => {
           <main className="flex-1 p-10 overflow-y-auto bg-[#010203] custom-scrollbar">
             <div className="max-w-5xl mx-auto">
               
-              {/* Header */}
               <div className="mb-12">
                 <h1 className="text-4xl font-extrabold text-white flex items-center gap-4 tracking-tight">
                   Invite User <UserPlus className="text-cyan-500" size={36} />
@@ -155,7 +158,6 @@ const InviteUsers = () => {
 
               <div className="grid grid-cols-1 gap-8">
                 
-                {/* User Info Form */}
                 <div className="bg-black/20 border border-white/10 rounded-[2rem] p-8 backdrop-blur-md shadow-2xl">
                   <div className="flex items-center gap-3 mb-6 text-cyan-400">
                     <Mail size={20} />
@@ -186,7 +188,6 @@ const InviteUsers = () => {
                   </div>
                 </div>
 
-                {/* Repository Selection */}
                 <div className="bg-black/20 border border-white/10 rounded-[2rem] p-8 backdrop-blur-md shadow-2xl">
                   <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center gap-3 text-cyan-400">

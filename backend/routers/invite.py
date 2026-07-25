@@ -1,4 +1,5 @@
 import uuid
+import os
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,6 +14,8 @@ from utils.security import decode_access_token
 from services.audit_service import create_audit_log
 from services.socket_service import emit_to_admin
 
+# Environment variable with fallback to production Vercel domain
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://code-verse-git-main-code-verse-s-projects.vercel.app")
 
 # =========================
 # INIT
@@ -41,7 +44,7 @@ def send_invite(
         token=token,
         repo_ids=payload.repo_ids,
         accepted=False,
-        admin_id=current_user_id  # Isolated to current admin
+        admin_id=current_user_id
     )
 
     try:
@@ -59,12 +62,14 @@ def send_invite(
         db.rollback()
         raise HTTPException(status_code=500, detail="Database save failed")
 
-    link = f"http://localhost:5173/accept-invite/{token}"
+    # Dynamic secure frontend link
+    link = f"{FRONTEND_URL.rstrip('/')}/accept-invite/{token}"
 
     try:
         send_invitation_email(payload.email, link)
     except Exception as e:
         print(f"Email sending failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
     return {"message": "Invitation sent", "link": link, "token": token}
 
@@ -88,7 +93,6 @@ async def accept_invite(
         raise HTTPException(status_code=404, detail="User not found")
 
     try:
-        # Strictly assign repos under the admin who created the invite
         for rid in invite.repo_ids:
             exists = db.query(UserRepository).filter_by(
                 user_id=user.id,
@@ -136,7 +140,6 @@ def get_user_management_list(
     db: Session = Depends(get_db),
     current_user_id: int = Depends(get_current_user_id)
 ):
-    # Fetch developers explicitly assigned to THIS admin
     active_developers = (
         db.query(User)
         .join(UserRepository, User.id == UserRepository.user_id)
@@ -148,7 +151,6 @@ def get_user_management_list(
         .all()
     )
 
-    # Fetch invitations explicitly sent by THIS admin
     pending_invites = db.query(Invitation).filter(
         Invitation.accepted == False,
         Invitation.admin_id == current_user_id
@@ -210,7 +212,6 @@ async def revoke_access(
                     details=f"Access revoked for {developer.first_name} {developer.last_name}"
                 )
 
-            # Delete only the mappings belonging to THIS admin
             db.query(UserRepository).filter(
                 UserRepository.user_id == id,
                 UserRepository.admin_id == current_user_id
