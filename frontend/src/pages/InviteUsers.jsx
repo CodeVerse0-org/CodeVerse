@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
-  RefreshCcw, 
   Github, 
   UserPlus, 
   Mail, 
@@ -39,56 +38,62 @@ const InviteUsers = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
       const token = localStorage.getItem("token");
       if (!token) return navigate("/login");
       const headers = { Authorization: `Bearer ${token}` };
 
       try {
-        // Fetch Admin Info, GitHub Status, and Repositories
         const [statusRes, adminRes] = await Promise.all([
           fetch(`${API_URL}/api/github/status`, { headers }),
           fetch(`${API_URL}/auth/me`, { headers }),
         ]);
 
-        if (adminRes.ok) {
+        if (adminRes.ok && isMounted) {
           const adminData = await adminRes.json();
           setAdmin({
-            name: `${adminData.first_name} ${adminData.last_name}`,
-            email: adminData.email,
+            name: `${adminData.first_name || ""} ${adminData.last_name || ""}`.trim() || "Admin",
+            email: adminData.email || "",
           });
         }
 
-        if (statusRes.ok) {
+        if (statusRes.ok && isMounted) {
           const statusData = await statusRes.json();
-          setIsConnected(statusData.connected);
+          setIsConnected(Boolean(statusData.connected));
 
           if (statusData.connected) {
-  console.log("Invite URL:", `${API_URL}/api/github/repositories`);
-  console.log("Invite TOKEN:", token);
-  console.log("Invite HEADERS:", headers);
+            const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
+            
+            if (repoRes.ok && isMounted) {
+              const repoData = await repoRes.json();
 
-  const repoRes = await fetch(`${API_URL}/api/github/repositories`, {
-    headers,
-  });
-
-  console.log("Invite Status:", repoRes.status);
-
-  const repoData = await repoRes.json();
-
-  console.log("Invite Response:", repoData);
-
-  setRepos(repoData.repositories || []);
-}
+              // ✅ SAFE ARRAY HANDLING FIX:
+              if (Array.isArray(repoData)) {
+                setRepos(repoData);
+              } else if (Array.isArray(repoData?.repositories)) {
+                setRepos(repoData.repositories);
+              } else {
+                setRepos([]);
+              }
+            }
+          }
         }
       } catch (err) {
         console.error("Invite page fetch error:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [navigate, API_URL]);
 
   const toggleRepo = (id) => {
@@ -118,7 +123,7 @@ const InviteUsers = () => {
         setSelectedRepos([]);
       } else {
         const data = await res.json();
-        alert(`Error: ${data.detail}`);
+        alert(`Error: ${data.detail || "Failed to send invitation."}`);
       }
     } catch (err) {
       alert("Failed to send invite.");
@@ -176,7 +181,6 @@ const InviteUsers = () => {
                         className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-5 py-4 outline-none focus:border-cyan-500/50 appearance-none text-white font-bold cursor-pointer"
                       >
                         <option className="bg-[#020405]">Developer</option>
-              
                       </select>
                     </div>
                   </div>
@@ -203,6 +207,10 @@ const InviteUsers = () => {
                     <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-3xl">
                       <Github size={48} className="mx-auto mb-4 text-gray-700" />
                       <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">GitHub Instance Offline</p>
+                    </div>
+                  ) : repos.length === 0 ? (
+                    <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-3xl">
+                      <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">No Repositories Found</p>
                     </div>
                   ) : (
                     <div className="border border-white/5 rounded-2xl overflow-hidden">
@@ -248,15 +256,6 @@ const InviteUsers = () => {
                   )}
 
                   <div className="flex justify-end gap-4 mt-10">
-                    {/* <button
-                      className="px-8 py-4 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-white hover:bg-white/5 transition-all"
-                      onClick={() => {
-                        setEmail("");
-                        setSelectedRepos([]);
-                      }}
-                    >
-                      Reset Form
-                    </button> */}
                     <button
                       disabled={!email || selectedRepos.length === 0}
                       className="px-10 py-4 rounded-xl bg-cyan-600 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black text-xs uppercase tracking-widest hover:bg-cyan-500 transition-all shadow-lg shadow-cyan-900/20"
