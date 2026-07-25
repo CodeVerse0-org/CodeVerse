@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { socket } from "../sockets";
+import { socket } from "../services/sockets";
 
 const NotificationContext = createContext();
 
