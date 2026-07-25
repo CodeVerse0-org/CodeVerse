@@ -30,14 +30,18 @@ from routers.notifications import router as notification_router
 # --------------------
 # ALLOWED ORIGINS (CORS Setup)
 # --------------------
+# main.py
+
 ALLOWED_ORIGINS = [
+    "https://code-verse-one.vercel.app",
     "https://code-verse-git-main-code-verse-s-projects.vercel.app",
     "https://code-verse-do54sfbio-code-verse-s-projects.vercel.app",
-    "https://code-verse-one.vercel.app",
     "https://code-verse-jf817vdev-code-verse-s-projects.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+
+# Configure FastAPI CORS Middleware
 # Configure Socket.IO allowed origins dynamically
 sio._cors_allowed_origins = ALLOWED_ORIGINS
 
@@ -90,7 +94,7 @@ fastapi_app = FastAPI(
 # --------------------
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],  # 👈 Temporarily set to ["*"] or add all your Vercel domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
