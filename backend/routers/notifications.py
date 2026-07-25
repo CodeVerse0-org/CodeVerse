@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from db.session import get_db
 from db.models import Notification, User
-from routers.auth import get_current_user # Adjust based on your auth route
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
@@ -12,13 +12,16 @@ def get_user_notifications(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    user_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
+
     notifications = (
         db.query(Notification)
-        .filter(Notification.user_id == current_user["id"])
+        .filter(Notification.user_id == user_id)
         .order_by(Notification.created_at.desc())
         .limit(20)
         .all()
     )
+
     return [
         {
             "id": n.id,
@@ -35,11 +38,14 @@ def get_user_notifications(
 @router.put("/read-all")
 def mark_all_read(
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
+    user_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
+
     db.query(Notification).filter(
-        Notification.user_id == current_user["id"],
+        Notification.user_id == user_id,
         Notification.is_read == False
     ).update({"is_read": True})
+    
     db.commit()
     return {"status": "success"}

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from db.session import get_db
 from db.models import (
-    User,
     Repository,
     UserRepository,
     Notification,
@@ -13,16 +12,13 @@ from db.models import (
 )
 
 from services.audit_service import create_audit_log
-from services.socket_service import (
-    emit_to_admin,
-    emit_to_developer,
-)
+from services.socket_service import emit_to_admin, emit_to_developer
 
 router = APIRouter()
 
 @router.post("/api/github/webhook")
 async def github_webhook(request: Request, db: Session = Depends(get_db)):
-    print("🔥 WEBHOOK RECEIVED")
+    print("\n🔥 GITHUB WEBHOOK EVENT RECEIVED")
 
     try:
         raw_body = await request.body()
@@ -33,7 +29,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         event = request.headers.get("X-GitHub-Event")
 
         if event != "push":
-            return {"status": "ignored"}
+            return {"status": "ignored non-push event"}
 
         # Extract Event Details
         repo = payload.get("repository", {})
@@ -44,10 +40,10 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         owner_id = repo_owner.get("id")
         branch = payload.get("ref", "").replace("refs/heads/", "")
         commit_count = len(payload.get("commits", []))
-        pusher = payload.get("pusher", {}).get("name")
+        pusher = payload.get("pusher", {}).get("name", "A contributor")
 
         if not repo_id:
-            return {"status": "missing repo id"}
+            return {"status": "missing repository id"}
 
         # Find Admin Ownership
         installation = (
@@ -57,7 +53,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         )
         admin_id = installation.admin_user_id if installation else None
 
-        # Save Repository if missing
+        # Ensure Repository exists in DB
         existing_repo = db.query(Repository).filter(Repository.id == repo_id).first()
         if not existing_repo:
             db.add(
@@ -75,8 +71,9 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         # Find assigned developers
         links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
 
-        print(f"🔍 WEBHOOK PAYLOAD REPO_ID: {repo_id} (Type: {type(repo_id)})")
-        print(f"🔍 FOUND ASSIGNED DEVELOPERS: {[l.user_id for l in links]}")
+        print(f"🔍 WEBHOOK TARGET REPO ID: {repo_id}")
+        print(f"👥 FOUND ASSIGNED DEVELOPER IDs: {[l.user_id for l in links]}")
+
         notification_title = "New Commits Pushed"
         notification_msg = f"{pusher} pushed {commit_count} commit(s) to {branch}. Would you like to sync the repo for an updated graph?"
 
@@ -84,8 +81,6 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Create & Persist Notifications
         for link in links:
-            print(f"🚀 ATTEMPTING SOCKET EMIT TO USER: {link.user_id}")
-                # ... rest of your code
             notif = Notification(
                 user_id=link.user_id,
                 repo_id=repo_id,
@@ -110,28 +105,25 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
             details=f"{pusher} pushed new commits to {branch}."
         )
 
-        # Emit Realtime Events to Developers
+        # Emit Real-time Socket Event to Assigned Developers
         for user_id, notif in created_notifications:
-            db.refresh(notif)  # Get saved ID
-            await emit_to_developer(
-                user_id,
-                "repo_updated",
-                {
-                    "id": notif.id,
-                    "repoId": repo_id,
-                    "repoName": repo_name,
-                    "pusher": pusher,
-                    "branch": branch,
-                    "title": notification_title,
-                    "message": notification_msg,
-                    "time": "Just now",
-                    "created_at": notif.created_at.isoformat() if hasattr(notif, 'created_at') else datetime.now(timezone.utc).isoformat(),
-                    "isRead": False,
-                    "actionRequired": True
-                }
-            )
+            db.refresh(notif)
+            payload = {
+                "id": notif.id,
+                "repoId": repo_id,
+                "repoName": repo_name,
+                "pusher": pusher,
+                "branch": branch,
+                "title": notification_title,
+                "message": notification_msg,
+                "time": "Just now",
+                "created_at": notif.created_at.isoformat() if notif.created_at else datetime.now(timezone.utc).isoformat(),
+                "isRead": False,
+                "actionRequired": True
+            }
+            await emit_to_developer(user_id, "repo_updated", payload)
 
-        # Emit Realtime Event to Admin
+        # Emit Real-time Socket Event to Admin
         if admin_id:
             await emit_to_admin(
                 admin_id,
@@ -148,6 +140,6 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "success"}
 
     except Exception as e:
-        print("❌ WEBHOOK ERROR:", str(e))
+        print(f"❌ WEBHOOK PROCESSING ERROR: {str(e)}")
         db.rollback()
         return {"status": "error", "message": str(e)}

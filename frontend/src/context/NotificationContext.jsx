@@ -21,7 +21,7 @@ export const NotificationProvider = ({ children }) => {
         setNotifications(data);
       }
     } catch (err) {
-      console.error("Failed to fetch notifications", err);
+      console.error("Failed to fetch notifications:", err);
     }
   }, [API_URL]);
 
@@ -29,20 +29,24 @@ export const NotificationProvider = ({ children }) => {
     fetchNotifications();
 
     const userData = JSON.parse(localStorage.getItem("user") || "{}");
-    if (userData?.id) {
-      // Join Socket Room
-      socket.emit("join_developer", { userId: userData.id });
+    const userId = userData.id || userData.user_id;
+
+    if (userId) {
+      console.log(`🔌 Joining developer socket room for User ID: ${userId}`);
+      socket.emit("join_developer", { userId: userId });
     }
 
     // Handle incoming real-time pushes
     const handleRepoUpdated = (newNotif) => {
-      setNotifications((prev) => [newNotif, ...prev]);
+      console.log("🔔 REALTIME NOTIFICATION RECEIVED:", newNotif);
+      setNotifications((prev) => {
+        // Avoid duplicate notification insertions
+        if (prev.some((n) => n.id === newNotif.id)) return prev;
+        return [newNotif, ...prev];
+      });
     };
 
     socket.on("repo_updated", handleRepoUpdated);
-    socket.on("repo_updated", (data) => {
-    console.log("🔔 REALTIME EVENT RECEIVED ON FRONTEND:", data);
-  });
 
     return () => {
       socket.off("repo_updated", handleRepoUpdated);
@@ -51,12 +55,9 @@ export const NotificationProvider = ({ children }) => {
 
   const markAllAsRead = async () => {
     const token = localStorage.getItem("token");
-    setNotifications(prev => {
-    if (prev.some(n => n.id === newNotif.id))
-        return prev;
-
-    return [newNotif, ...prev];
-});
+    setNotifications((prev) =>
+      prev.map((n) => ({ ...n, isRead: true }))
+    );
 
     try {
       await fetch(`${API_URL}/api/notifications/read-all`, {
@@ -64,7 +65,7 @@ export const NotificationProvider = ({ children }) => {
         headers: { Authorization: `Bearer ${token}` },
       });
     } catch (err) {
-      console.error("Failed to mark notifications as read", err);
+      console.error("Failed to mark notifications as read:", err);
     }
   };
 
