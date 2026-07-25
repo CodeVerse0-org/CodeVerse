@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
-  RefreshCcw, 
   Github, 
   UserPlus, 
   Mail, 
@@ -67,14 +66,22 @@ const InviteUsers = () => {
             const repoRes = await fetch(`${API_URL}/api/github/repositories`, { headers });
             if (repoRes.ok) {
               const repoData = await repoRes.json();
-              setRepos(repoData.repositories || []);
+              
+              // 👈 FIXED: Dynamically check if repoData is a raw array or wrapped object
+              if (Array.isArray(repoData)) {
+                setRepos(repoData);
+              } else if (Array.isArray(repoData.repositories)) {
+                setRepos(repoData.repositories);
+              } else {
+                setRepos([]);
+              }
             }
           }
         }
       } catch (err) {
         console.error("Invite page fetch error:", err);
-      } font-medium
-      {
+      } finally {
+        // 👈 FIXED: Clean syntax so setLoading(false) always fires
         setLoading(false);
       }
     };
@@ -96,7 +103,6 @@ const InviteUsers = () => {
     setSending(true);
 
     try {
-      // 👈 Added trailing slash to avoid 307 Temporary Redirect issues
       const res = await fetch(`${API_URL}/api/invite/`, {
         method: "POST",
         headers: {
@@ -212,6 +218,12 @@ const InviteUsers = () => {
                       <Github size={48} className="mx-auto mb-4 text-gray-700" />
                       <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">
                         GitHub Instance Offline
+                      </p>
+                    </div>
+                  ) : repos.length === 0 ? (
+                    <div className="text-center py-12 border-2 border-dashed border-white/5 rounded-3xl">
+                      <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">
+                        No Repositories Found
                       </p>
                     </div>
                   ) : (
