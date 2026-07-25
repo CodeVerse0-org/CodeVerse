@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from db.session import get_db
 from db.models import Notification, User
-from auth.deps import get_current_user # Adjust based on your auth route
+from routers.auth import get_current_user # Adjust based on your auth route
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
