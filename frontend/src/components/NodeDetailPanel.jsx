@@ -18,6 +18,9 @@ import axios from "axios";
 
 import ReactMarkdown from "react-markdown";
 
+// Dynamically uses environment variable when deployed, defaults to local during dev
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 const NodeDetailPanel = ({
   activeNode,
   selectedNode,
@@ -94,7 +97,7 @@ const NodeDetailPanel = ({
 
       const response = await axios.post(
 
-        "http://localhost:8000/api/summaries/process",
+        `${API_BASE_URL}/api/summaries/process`,
 
         {
           file_path: selectedNode.id,

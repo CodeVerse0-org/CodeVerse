@@ -27,11 +27,10 @@ from routers.chatbot import router as chatbot_router
 from routers.webhook_service import router as webhook_router
 from routers.audit_logs import router as audit_logs_router
 from routers.notifications import router as notification_router
+
 # --------------------
 # ALLOWED ORIGINS (CORS Setup)
 # --------------------
-# main.py
-
 ALLOWED_ORIGINS = [
     "https://code-verse-one.vercel.app",
     "https://code-verse-git-main-code-verse-s-projects.vercel.app",
@@ -41,7 +40,6 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-# Configure FastAPI CORS Middleware
 # Configure Socket.IO allowed origins dynamically
 sio._cors_allowed_origins = ALLOWED_ORIGINS
 
@@ -94,16 +92,16 @@ fastapi_app = FastAPI(
 # --------------------
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 👈 Temporarily set to ["*"] or add all your Vercel domains
+    allow_origins=ALLOWED_ORIGINS,  # 👈 Replaced "*" with explicit list to allow Credentials + Headers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://code-verse-.*\.vercel\.app",  # 👈 Automatically matches any new Vercel preview deploys
 )
 
 # --------------------
 # ROUTES
 # --------------------
-# Route mounts: Router prefixes in main.py will register paths correctly
 fastapi_app.include_router(auth_router, prefix="/auth")
 fastapi_app.include_router(email_router, prefix="/auth")
 fastapi_app.include_router(reset_router, prefix="/auth")
