@@ -32,25 +32,26 @@ const GitHubConnectCallback = () => {
 
       try {
         const res = await fetch(`${API_URL}/api/github/finalize?installation_id=${installationId}`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json"
-          }
-        });
+        method: "POST",
+        headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+    }
+  });
 
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.detail || "GitHub finalization failed");
-        }
+  // ✅ Check if HTTP status is 200-299 BEFORE calling res.json()
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`Server Error (${res.status}):`, errorText);
+    throw new Error(`Server returned status ${res.status}`);
+  }
 
-        // Successfully connected and DB updated
-        navigate("/adminDashboard");
-      } catch (err) {
-        console.error(err);
-        // On error, let the user try connecting again
-        navigate("/github-connect");
-      }
+  const data = await res.json();
+  navigate("/adminDashboard", { replace: true });
+} catch (err) {
+  console.error("Fetch Error:", err);
+  navigate("/adminDashboard", { replace: true });
+}
     };
 
     finalizeGitHub();
