@@ -75,6 +75,8 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
         # Find assigned developers
         links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
 
+        print(f"🔍 WEBHOOK PAYLOAD REPO_ID: {repo_id} (Type: {type(repo_id)})")
+        print(f"🔍 FOUND ASSIGNED DEVELOPERS: {[l.user_id for l in links]}")
         notification_title = "New Commits Pushed"
         notification_msg = f"{pusher} pushed {commit_count} commit(s) to {branch}. Would you like to sync the repo for an updated graph?"
 
@@ -82,6 +84,8 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Create & Persist Notifications
         for link in links:
+            print(f"🚀 ATTEMPTING SOCKET EMIT TO USER: {link.user_id}")
+                # ... rest of your code
             notif = Notification(
                 user_id=link.user_id,
                 repo_id=repo_id,

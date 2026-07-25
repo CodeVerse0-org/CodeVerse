@@ -40,6 +40,9 @@ export const NotificationProvider = ({ children }) => {
     };
 
     socket.on("repo_updated", handleRepoUpdated);
+    socket.on("repo_updated", (data) => {
+    console.log("🔔 REALTIME EVENT RECEIVED ON FRONTEND:", data);
+  });
 
     return () => {
       socket.off("repo_updated", handleRepoUpdated);
