@@ -27,6 +27,7 @@ from routers.chatbot import router as chatbot_router
 from routers.webhook_service import router as webhook_router
 from routers.audit_logs import router as audit_logs_router
 from routers.notifications import router as notification_router
+from routers.smtp_test import router as smtp_test_router
 
 # --------------------
 # ALLOWED ORIGINS (CORS Setup)
@@ -120,7 +121,7 @@ fastapi_app.include_router(visualization_router)
 fastapi_app.include_router(webhook_router)
 fastapi_app.include_router(audit_logs_router)
 fastapi_app.include_router(notification_router)
-
+fastapi_app.include_router(smtp_test_router)
 @fastapi_app.get("/")
 def root():
     return {"status": "ok"}
