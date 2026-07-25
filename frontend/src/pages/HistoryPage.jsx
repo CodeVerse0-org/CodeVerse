@@ -81,23 +81,28 @@ useEffect(() => {
    * Handles ISO strings, timestamps, and missing data fallbacks
    */
   const formatDate = (dateValue) => {
-    if (!dateValue) return "Timestamp Pending";
-    
-    // Robust date parsing
-    const dateObj = new Date(dateValue);
-    
-    if (isNaN(dateObj.getTime())) {
-      return "Recent Log";
-    }
+  if (!dateValue) return "Timestamp Pending";
+  
+  // Convert string to ISO UTC if it doesn't specify a timezone offset
+  let safeValue = dateValue;
+  if (typeof dateValue === 'string' && !dateValue.endsWith('Z') && !dateValue.includes('+')) {
+    safeValue = `${dateValue.replace(' ', 'T')}Z`;
+  }
+  
+  const dateObj = new Date(safeValue);
+  
+  if (isNaN(dateObj.getTime())) {
+    return "Recent Log";
+  }
 
-    return dateObj.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
+  return dateObj.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+};
 
   const getSidebarNodes = () => {
     const repos = {};
