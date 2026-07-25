@@ -7,11 +7,11 @@ def normalize_repo_name(repo_name: str) -> str:
     if not repo_name:
         return ""
     cleaned = str(repo_name).strip().lower()
-    # Handle decoded URL paths or extra slashes
     return cleaned.strip("/")
 
 
 def _sync_execute_query(query: str, params: dict):
+    # Retrieve the active driver instance
     driver = Neo4jConnection.get_driver()
     with driver.session(database=None) as session:
         result = session.run(query, **params)
@@ -27,16 +27,13 @@ async def save_chat_message(user_id: str, repo_name: str, session_id: str, user_
     clean_repo = normalize_repo_name(repo_name)
     clean_session = str(session_id).strip()
     
-    # Scoped session key ensures absolute uniqueness per user + repository
     scoped_session_id = f"{clean_user}::{clean_repo}::{clean_session}"
     new_entry = f"\nUser: {user_msg}\nAssistant: {ai_msg}"
 
     query = """
-    // 1. Ensure User and Repository nodes exist with normalized properties
     MERGE (u:User {id: $user_id})
     MERGE (r:Repository {name: $repo_name})
     
-    // 2. Uniquely create/update the ChatSession node scoped to this exact user
     MERGE (s:ChatSession {id: $scoped_session_id})
     ON CREATE SET 
         s.raw_session_id = $raw_session_id,
@@ -48,7 +45,6 @@ async def save_chat_message(user_id: str, repo_name: str, session_id: str, user_
         s.history_text = COALESCE(s.history_text, '') + $new_entry,
         s.updated_at = timestamp()
 
-    // 3. Bind relationships strictly
     MERGE (u)-[:HAS_SESSION]->(s)
     MERGE (s)-[:FOR_REPO]->(r)
     """
@@ -61,14 +57,16 @@ async def save_chat_message(user_id: str, repo_name: str, session_id: str, user_
         "new_entry": new_entry,
     }
 
-    await asyncio.to_thread(_sync_execute_query, query, params)
+    try:
+        await asyncio.to_thread(_sync_execute_query, query, params)
+    except Exception as e:
+        print(f"❌ Neo4j Save Message Error: {e}")
 
 
 async def get_user_repo_history(user_id: str, repo_name: str):
     clean_user = str(user_id).strip()
     clean_repo = normalize_repo_name(repo_name)
     
-    # STRICT GRAPH TRAVERSAL: Only fetch sessions owned by this exact user for this exact repo
     query = """
     MATCH (u:User {id: $user_id})-[:HAS_SESSION]->(s:ChatSession)-[:FOR_REPO]->(r:Repository {name: $repo_name})
     RETURN s.raw_session_id AS sessionId, s.history_text AS history, s.created_at AS created_at
@@ -80,9 +78,13 @@ async def get_user_repo_history(user_id: str, repo_name: str):
         "repo_name": clean_repo
     }
 
-    results = await asyncio.to_thread(_sync_execute_query, query, params)
+    try:
+        results = await asyncio.to_thread(_sync_execute_query, query, params)
+    except Exception as e:
+        print(f"❌ Neo4j Fetch History Error: {e}")
+        # Safe fallback: return empty list so the frontend doesn't crash with 500
+        return []
 
-    # De-duplicate sessions by sessionId
     seen = set()
     unique_sessions = []
     
@@ -105,7 +107,6 @@ async def delete_chat_session(session_id: str, user_id: str, repo_name: str) -> 
     clean_session = str(session_id).strip()
     scoped_session_id = f"{clean_user}::{clean_repo}::{clean_session}"
 
-    # Strict deletion: User must own the session
     query = """
     MATCH (u:User {id: $user_id})-[:HAS_SESSION]->(s:ChatSession {id: $scoped_session_id})
     DETACH DELETE s

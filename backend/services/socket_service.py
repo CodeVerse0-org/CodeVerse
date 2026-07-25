@@ -12,36 +12,20 @@ sio = socketio.AsyncServer(
     engineio_logger=True,
 )
 
-# ==========================================================
-# Connected Clients
-# ==========================================================
-
+# Tracks active connections per user
 connected_developers: Dict[int, Set[str]] = {}
 connected_admins: Dict[int, Set[str]] = {}
 
-# ==========================================================
-# Connection
-# ==========================================================
 
 @sio.event
 async def connect(sid, environ):
-    print("\n================================")
-    print("✅ SOCKET CONNECTED")
-    print("SID:", sid)
-    print("================================")
+    print(f"\n✅ SOCKET CONNECTED: SID = {sid}")
 
-
-# ==========================================================
-# Developer joins room
-# ==========================================================
 
 @sio.on("join_developer")
 async def join_developer(sid, data):
-
     try:
-
         user_id = int(data.get("userId"))
-
         room = f"developer_{user_id}"
 
         await sio.enter_room(sid, room)
@@ -51,36 +35,20 @@ async def join_developer(sid, data):
 
         connected_developers[user_id].add(sid)
 
-        print("\n========== DEVELOPER JOINED ==========")
-        print("SID:", sid)
-        print("User ID:", user_id)
-        print("Room:", room)
+        print(f"\n========== DEVELOPER JOINED ==========")
+        print(f"SID: {sid} | User ID: {user_id} | Room: {room}")
         print("======================================")
 
-        await sio.emit(
-            "joined_room",
-            {
-                "success": True,
-                "room": room
-            },
-            room=sid
-        )
+        await sio.emit("joined_room", {"success": True, "room": room}, room=sid)
 
     except Exception as e:
-        print("join_developer error:", e)
+        print(f"❌ join_developer error: {e}")
 
-
-# ==========================================================
-# Admin joins room
-# ==========================================================
 
 @sio.on("join_admin")
 async def join_admin(sid, data):
-
     try:
-
         admin_id = int(data.get("adminId"))
-
         room = f"admin_{admin_id}"
 
         await sio.enter_room(sid, room)
@@ -90,124 +58,49 @@ async def join_admin(sid, data):
 
         connected_admins[admin_id].add(sid)
 
-        print("\n========== ADMIN JOINED ==========")
-        print("SID:", sid)
-        print("Admin ID:", admin_id)
-        print("Room:", room)
+        print(f"\n========== ADMIN JOINED ==========")
+        print(f"Admin ID: {admin_id} | Room: {room}")
         print("==================================")
 
-        await sio.emit(
-            "joined_room",
-            {
-                "success": True,
-                "room": room
-            },
-            room=sid
-        )
+        await sio.emit("joined_room", {"success": True, "room": room}, room=sid)
 
     except Exception as e:
-        print("join_admin error:", e)
+        print(f"❌ join_admin error: {e}")
 
 
-# ==========================================================
-# Emit Notification To Developer
-# ==========================================================
-
-async def emit_to_developer(
-    user_id: int,
-    event: str,
-    data: dict,
-):
-
+async def emit_to_developer(user_id: int, event: str, data: dict):
     room = f"developer_{user_id}"
+    print(f"\n📡 [SOCKET EMIT] Sending '{event}' to room: {room}")
+    print(f"Payload: {data}")
 
-    print("\n========== EMIT TO DEVELOPER ==========")
-    print("User:", user_id)
-    print("Room:", room)
-    print("Event:", event)
-    print("Payload:", data)
-
-    await sio.emit(
-        event,
-        data,
-        room=room,
-    )
-
-    print("✅ Sent to developer")
+    await sio.emit(event, data, room=room)
+    print("✅ Emitted successfully to developer room")
 
 
-# ==========================================================
-# Emit Notification To Admin
-# ==========================================================
-
-async def emit_to_admin(
-    admin_id: int,
-    event: str,
-    data: dict,
-):
-
+async def emit_to_admin(admin_id: int, event: str, data: dict):
     room = f"admin_{admin_id}"
+    print(f"\n📡 [SOCKET EMIT] Sending '{event}' to admin room: {room}")
+    await sio.emit(event, data, room=room)
 
-    print("\n========== EMIT TO ADMIN ==========")
-    print("Admin:", admin_id)
-    print("Room:", room)
-    print("Event:", event)
-    print("Payload:", data)
-
-    await sio.emit(
-        event,
-        data,
-        room=room,
-    )
-
-    print("✅ Sent to admin")
-
-
-# ==========================================================
-# Broadcast
-# ==========================================================
 
 async def broadcast(event: str, data: dict):
-
-    print("\n========== BROADCAST ==========")
-    print(event)
-
     await sio.emit(event, data)
 
 
-# ==========================================================
-# Disconnect
-# ==========================================================
-
 @sio.event
 async def disconnect(sid):
-
-    print("\n================================")
-    print("❌ SOCKET DISCONNECTED")
-    print("SID:", sid)
+    print(f"\n❌ SOCKET DISCONNECTED: SID = {sid}")
 
     for user_id in list(connected_developers.keys()):
-
         if sid in connected_developers[user_id]:
-
             connected_developers[user_id].remove(sid)
-
-            if len(connected_developers[user_id]) == 0:
+            if not connected_developers[user_id]:
                 del connected_developers[user_id]
-
             break
 
     for admin_id in list(connected_admins.keys()):
-
         if sid in connected_admins[admin_id]:
-
             connected_admins[admin_id].remove(sid)
-
-            if len(connected_admins[admin_id]) == 0:
+            if not connected_admins[admin_id]:
                 del connected_admins[admin_id]
-
             break
-
-    print("Connected Developers:", connected_developers)
-    print("Connected Admins:", connected_admins)
-    print("================================")
