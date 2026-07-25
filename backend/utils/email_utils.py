@@ -23,18 +23,46 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "codeverse12345@gmail.com")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "kmpa wehp uubo vohd")
-
+# Debug (remove after testing)
+print("SMTP_SERVER:", SMTP_SERVER)
+print("SMTP_PORT:", SMTP_PORT)
+print("SENDER_EMAIL:", SENDER_EMAIL)
+print("PASSWORD EXISTS:", bool(SENDER_PASSWORD))
 # ------------------------------
 # HELPER TO SEND EMAIL VIA TLS (PORT 587)
 # ------------------------------
 def _send_email_tls(msg: EmailMessage):
-    """Sends an email using SMTP + STARTTLS on port 587 to prevent 'Network is unreachable' errors."""
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=15) as server:
+    try:
+        print("Connecting to SMTP...")
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30)
+
+        print("Connected!")
+
+        print("EHLO...")
         server.ehlo()
-        server.starttls()  # Upgrade connection to secure TLS
+
+        print("STARTTLS...")
+        server.starttls()
+
+        print("TLS started")
+
         server.ehlo()
+
+        print("Logging in...")
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
+
+        print("Logged in")
+
+        print("Sending email...")
         server.send_message(msg)
+
+        print("Email sent")
+
+        server.quit()
+
+    except Exception as e:
+        print("SMTP ERROR:", repr(e))
+        raise
 
 # ------------------------------
 # OTP EMAIL
