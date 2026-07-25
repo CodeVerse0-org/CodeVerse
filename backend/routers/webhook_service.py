@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Depends
 from sqlalchemy.orm import Session
 import json
+from datetime import datetime, timezone
 
 from db.session import get_db
 from db.models import (
@@ -8,116 +9,140 @@ from db.models import (
     UserRepository,
     Notification,
     Repository,
-    GitHubInstallation,
+    GitHubInstallation
 )
 
 from services.audit_service import create_audit_log
-from services.socket_service import emit_to_admin, emit_to_developer
+from services.socket_service import (
+    emit_to_admin,
+    emit_to_developer,
+)
 
 router = APIRouter()
 
-
 @router.post("/api/github/webhook")
 async def github_webhook(request: Request, db: Session = Depends(get_db)):
-
-    print("\n================ WEBHOOK RECEIVED ================\n")
+    print("🔥 WEBHOOK RECEIVED")
 
     try:
+        raw_body = await request.body()
+        if not raw_body:
+            return {"status": "empty body"}
 
-        payload = await request.json()
+        payload = json.loads(raw_body)
+        event = request.headers.get("X-GitHub-Event")
 
-        print("EVENT:", request.headers.get("X-GitHub-Event"))
+        if event != "push":
+            return {"status": "ignored"}
 
+        # Extract Event Details
         repo = payload.get("repository", {})
-
         repo_id = repo.get("id")
         repo_name = repo.get("name")
+        repo_full_name = repo.get("full_name")
+        repo_owner = repo.get("owner", {})
+        owner_id = repo_owner.get("id")
+        branch = payload.get("ref", "").replace("refs/heads/", "")
+        commit_count = len(payload.get("commits", []))
+        pusher = payload.get("pusher", {}).get("name")
 
-        print("Repo ID:", repo_id)
-        print("Repo Name:", repo_name)
+        if not repo_id:
+            return {"status": "missing repo id"}
 
-        links = db.query(UserRepository).filter(
-            UserRepository.repo_id == repo_id
-        ).all()
-
-        print("FOUND LINKS:", len(links))
-
-        for l in links:
-            print(
-                "Developer:",
-                l.user_id,
-                "Repo:",
-                l.repo_id,
-                "Admin:",
-                l.admin_id,
-            )
-
-        if len(links) == 0:
-            print("NO USER ASSIGNED TO THIS REPOSITORY")
-            return {"status": "no mapping"}
-
+        # Find Admin Ownership
         installation = (
             db.query(GitHubInstallation)
-            .filter(
-                GitHubInstallation.admin_user_id == links[0].admin_id
-            )
+            .filter(GitHubInstallation.org_id == owner_id)
             .first()
         )
+        admin_id = installation.admin_user_id if installation else None
 
-        print("INSTALLATION:", installation)
+        # Save Repository if missing
+        existing_repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if not existing_repo:
+            db.add(
+                Repository(
+                    id=repo_id,
+                    name=repo_name,
+                    full_name=repo_full_name,
+                    html_url=repo.get("html_url"),
+                    private=repo.get("private", False),
+                )
+            )
+            db.commit()
 
+        # Find assigned developers
+        links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
+
+        notification_title = "New Commits Pushed"
+        notification_msg = f"{pusher} pushed {commit_count} commit(s) to {branch}. Would you like to sync the repo for an updated graph?"
+
+        created_notifications = []
+
+        # Create & Persist Notifications
         for link in links:
-
-            notification = Notification(
+            notif = Notification(
                 user_id=link.user_id,
                 repo_id=repo_id,
-                title="Repository Updated",
-                message="New commit pushed.",
-                event_type="push",
+                title=notification_title,
+                message=notification_msg,
+                event_type="repo_sync_required",
                 is_read=False,
+                created_at=datetime.now(timezone.utc)
             )
-
-            db.add(notification)
+            db.add(notif)
+            created_notifications.append((link.user_id, notif))
 
         db.commit()
 
-        print("NOTIFICATIONS INSERTED")
+        # Save Audit Log
+        create_audit_log(
+            admin_id=admin_id,
+            actor_id=None,
+            repository_id=repo_id,
+            repository_name=repo_name,
+            action="Repository Updated",
+            details=f"{pusher} pushed new commits to {branch}."
+        )
 
-        for link in links:
-
+        # Emit Realtime Events to Developers
+        for user_id, notif in created_notifications:
+            db.refresh(notif)  # Get saved ID
             await emit_to_developer(
-                link.user_id,
+                user_id,
                 "repo_updated",
                 {
-                    "title": "Repository Updated",
-                    "message": "New commit pushed.",
-                },
+                    "id": notif.id,
+                    "repoId": repo_id,
+                    "repoName": repo_name,
+                    "pusher": pusher,
+                    "branch": branch,
+                    "title": notification_title,
+                    "message": notification_msg,
+                    "time": "Just now",
+                    "created_at": notif.created_at.isoformat() if hasattr(notif, 'created_at') else datetime.now(timezone.utc).isoformat(),
+                    "isRead": False,
+                    "actionRequired": True
+                }
             )
 
-            print("SOCKET SENT TO", link.user_id)
-
-        if installation:
-
+        # Emit Realtime Event to Admin
+        if admin_id:
             await emit_to_admin(
-                installation.admin_user_id,
+                admin_id,
                 "admin_notification",
                 {
                     "title": "Repository Updated",
-                    "message": "Repository updated.",
-                },
+                    "message": f"{repo_name} updated by {pusher}.",
+                    "details": f"{pusher} pushed {commit_count} commit(s) to {branch}.",
+                    "repository": repo_name,
+                    "action": "Repository Updated",
+                }
             )
 
-            print("ADMIN SOCKET SENT")
-
-        print("============== FINISHED ==============")
-
-        return {"success": True}
+        return {"status": "success"}
 
     except Exception as e:
-
+        print("❌ WEBHOOK ERROR:", str(e))
         db.rollback()
-
-        print("WEBHOOK ERROR")
-        print(e)
-
-        return {"error": str(e)}
+        return {"status": "error", "message": str(e)}

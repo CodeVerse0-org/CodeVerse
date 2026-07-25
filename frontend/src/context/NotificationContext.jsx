@@ -1,231 +1,74 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-} from "react";
-import { socket } from "../services/sockets";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { socket } from "../sockets";
 
-const NotificationContext = createContext({
-  notifications: [],
-  unreadCount: 0,
-  markAllAsRead: () => {},
-});
+const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-  useEffect(() => {
+  // Fetch initial notifications from DB
+  const fetchNotifications = useCallback(async () => {
     const token = localStorage.getItem("token");
-
     if (!token) return;
 
-    //---------------------------------------------------
-    // Join Socket Rooms
-    //---------------------------------------------------
-
-    const registerSocketRooms = (user) => {
-      if (user.role === "admin") {
-        console.log("Joining Admin Room:", user.id);
-
-        socket.emit("join_admin", {
-          adminId: user.id,
-        });
+    try {
+      const res = await fetch(`${API_URL}/api/notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
       }
+    } catch (err) {
+      console.error("Failed to fetch notifications", err);
+    }
+  }, [API_URL]);
 
-      if (user.role === "developer") {
-        console.log("Joining Developer Room:", user.id);
+  useEffect(() => {
+    fetchNotifications();
 
-        socket.emit("join_developer", {
-          userId: user.id,
-        });
-      }
-    };
-
-    //---------------------------------------------------
-    // Load Existing Notifications
-    //---------------------------------------------------
-
-    fetch("http://localhost:8000/notifications", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        const formatted = data.map((n) => ({
-          id: n.id,
-          title: n.title,
-          message: n.message,
-          isRead: n.is_read,
-          time: new Date(n.created_at).toLocaleString(),
-        }));
-
-        setNotifications(formatted);
-      })
-      .catch(console.error);
-
-    //---------------------------------------------------
-    // Load User
-    //---------------------------------------------------
-
-    const cachedUser = localStorage.getItem("user");
-
-    if (cachedUser) {
-      try {
-        const user = JSON.parse(cachedUser);
-
-        registerSocketRooms(user);
-      } catch {
-        localStorage.removeItem("user");
-      }
+    const userData = JSON.parse(localStorage.getItem("user") || "{}");
+    if (userData?.id) {
+      // Join Socket Room
+      socket.emit("join_developer", { userId: userData.id });
     }
 
-    //---------------------------------------------------
-    // Refresh User
-    //---------------------------------------------------
-
-    fetch("http://localhost:8000/auth/me", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((r) => r.json())
-      .then((user) => {
-        localStorage.setItem("user", JSON.stringify(user));
-
-        if (socket.connected) {
-          registerSocketRooms(user);
-        }
-
-        socket.off("connect");
-
-        socket.on("connect", () => {
-          registerSocketRooms(user);
-        });
-      })
-      .catch(console.error);
-
-    //---------------------------------------------------
-    // ADMIN SOCKET EVENT
-    //---------------------------------------------------
-
-    const handleAdminNotification = (data) => {
-      console.log("Admin Notification:", data);
-
-      const newNotification = {
-        id: Date.now(),
-        title: data.title,
-        message: data.message,
-        isRead: false,
-        time: "Just now",
-      };
-
-      setNotifications((prev) => [
-        newNotification,
-        ...prev,
-      ]);
+    // Handle incoming real-time pushes
+    const handleRepoUpdated = (newNotif) => {
+      setNotifications((prev) => [newNotif, ...prev]);
     };
 
-    //---------------------------------------------------
-    // DEVELOPER SOCKET EVENT
-    //---------------------------------------------------
-
-    const handleDeveloperNotification = (data) => {
-      console.log("Developer Notification:", data);
-
-      const newNotification = {
-        id: Date.now(),
-        title: data.title,
-        message:
-          data.details ||
-          data.message ||
-          "Repository Updated",
-        isRead: false,
-        time: "Just now",
-      };
-
-      setNotifications((prev) => [
-        newNotification,
-        ...prev,
-      ]);
-    };
-
-    //---------------------------------------------------
-    // SOCKET LISTENERS
-    //---------------------------------------------------
-
-    socket.on(
-      "admin_notification",
-      handleAdminNotification
-    );
-
-    socket.on(
-      "repo_updated",
-      handleDeveloperNotification
-    );
-
-    //---------------------------------------------------
-    // CLEANUP
-    //---------------------------------------------------
+    socket.on("repo_updated", handleRepoUpdated);
 
     return () => {
-      socket.off("connect");
-
-      socket.off(
-        "admin_notification",
-        handleAdminNotification
-      );
-
-      socket.off(
-        "repo_updated",
-        handleDeveloperNotification
-      );
+      socket.off("repo_updated", handleRepoUpdated);
     };
-  }, []);
+  }, [fetchNotifications]);
 
-  //---------------------------------------------------
-  // Unread Count
-  //---------------------------------------------------
-
-  const unreadCount = notifications.filter(
-    (n) => !n.isRead
-  ).length;
-
-  //---------------------------------------------------
-  // Mark All Read
-  //---------------------------------------------------
-
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
     const token = localStorage.getItem("token");
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
 
-    setNotifications((prev) =>
-      prev.map((n) => ({
-        ...n,
-        isRead: true,
-      }))
-    );
-
-    fetch("http://localhost:8000/notifications/read-all", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }).catch(console.error);
+    try {
+      await fetch(`${API_URL}/api/notifications/read-all`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.error("Failed to mark notifications as read", err);
+    }
   };
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
     <NotificationContext.Provider
-      value={{
-        notifications,
-        unreadCount,
-        markAllAsRead,
-      }}
+      value={{ notifications, unreadCount, markAllAsRead, fetchNotifications }}
     >
       {children}
     </NotificationContext.Provider>
   );
 };
 
-export const useNotification = () =>
-  useContext(NotificationContext);
+export const useNotification = () => useContext(NotificationContext);

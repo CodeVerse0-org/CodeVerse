@@ -21,6 +21,7 @@ const DeveloperDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:8000";
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
@@ -66,8 +67,10 @@ const DeveloperDashboard = () => {
       });
 
       if (!res.ok) throw new Error("Session expired");
+      // In DeveloperDashboard.jsx inside initDashboard():
       const userData = await res.json();
       setUser(userData);
+      localStorage.setItem("user", JSON.stringify(userData)); // Save user so Socket context reads the ID
 
       // Fetch the repos THIS user is allowed to see
       const repoData = await fetchRepos(token);
