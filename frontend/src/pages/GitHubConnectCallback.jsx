@@ -14,7 +14,8 @@ const GitHubConnectCallback = () => {
 
       const token = localStorage.getItem("token");
       if (!token) {
-        navigate("/login");
+        console.warn("No auth token found, redirecting to login.");
+        navigate("/login", { replace: true });
         return;
       }
 
@@ -24,7 +25,7 @@ const GitHubConnectCallback = () => {
 
       if (!installationId) {
         console.error("No installation_id found in URL parameters");
-        navigate("/github-connect");
+        navigate("/github-connect", { replace: true });
         return;
       }
 
@@ -32,26 +33,27 @@ const GitHubConnectCallback = () => {
 
       try {
         const res = await fetch(`${API_URL}/api/github/finalize?installation_id=${installationId}`, {
-        method: "POST",
-        headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-    }
-  });
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        });
 
-  // ✅ Check if HTTP status is 200-299 BEFORE calling res.json()
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error(`Server Error (${res.status}):`, errorText);
-    throw new Error(`Server returned status ${res.status}`);
-  }
+        // ✅ Check if HTTP status is 200-299 BEFORE calling res.json()
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error(`Server Error (${res.status}):`, errorText);
+          throw new Error(`Server returned status ${res.status}`);
+        }
 
-  const data = await res.json();
-  navigate("/adminDashboard", { replace: true });
-} catch (err) {
-  console.error("Fetch Error:", err);
-  navigate("/adminDashboard", { replace: true });
-}
+        const data = await res.json();
+        console.log("GitHub Finalization Successful:", data);
+        navigate("/adminDashboard", { replace: true });
+      } catch (err) {
+        console.error("Fetch Error during GitHub finalization:", err);
+        navigate("/adminDashboard", { replace: true });
+      }
     };
 
     finalizeGitHub();
