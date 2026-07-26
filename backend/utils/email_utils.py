@@ -1,82 +1,122 @@
 import os
-import resend
+import smtplib
+from email.message import EmailMessage
+from dotenv import load_dotenv
 
-FROM_EMAIL = os.getenv("FROM_EMAIL", "onboarding@resend.dev")
+# Load environment variables
+load_dotenv()
 
-def send_email(to_email: str, subject: str, body: str):
+# ------------------------------
+# Gmail SMTP configuration
+# ------------------------------
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
-    api_key = os.getenv("MY_KEY")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
 
-    print("MY_KEY EXISTS:", api_key is not None)
-    print("MY_KEY LENGTH:", len(api_key) if api_key else 0)
-    print("MY_KEY START:", api_key[:5] if api_key else None)
+if not SENDER_EMAIL:
+    raise Exception("❌ SENDER_EMAIL environment variable is missing.")
 
-    if not api_key:
-        raise ValueError("MY_KEY missing")
+if not SENDER_PASSWORD:
+    raise Exception("❌ SENDER_PASSWORD environment variable is missing.")
 
-    api_key = api_key.strip().strip('"').strip("'")
 
-    resend.api_key = api_key
+# ==========================================================
+# Generic email sender
+# ==========================================================
+def send_email(subject: str, to_email: str, body: str):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = to_email
+    msg.set_content(body)
 
     try:
-        response = resend.Emails.send({
-            "from": FROM_EMAIL,
-            "to": [to_email],
-            "subject": subject,
-            "text": body,
-        })
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
 
-        print("EMAIL SENT:", response)
-        return response
+        print(f"✅ Email sent successfully to {to_email}")
 
     except Exception as e:
-        print("RESEND ERROR:", repr(e))
+        print(f"❌ Email sending failed: {e}")
         raise
 
 
+# ==========================================================
+# Email Verification OTP
+# ==========================================================
 def send_otp_email(to_email: str, otp: str):
+    body = f"""
+Hello,
+
+Your CodeVerse email verification code is:
+
+🔐 {otp}
+
+This code will expire in 10 minutes.
+
+If you did not sign up, please ignore this email.
+
+— CodeVerse Team
+"""
+
     send_email(
-        to_email,
-        "CodeVerse - Email Verification Code",
-        f"""Hello,
-
-Your verification code is:
-
-{otp}
-
-This code expires in 10 minutes.
-
-— CodeVerse Team"""
+        subject="CodeVerse - Email Verification Code",
+        to_email=to_email,
+        body=body,
     )
 
 
-def send_reset_password_email(to_email: str, otp: str):
-    send_email(
-        to_email,
-        "CodeVerse - Reset Password Code",
-        f"""Hello,
-
-Your reset password code is:
-
-{otp}
-
-This code expires in 10 minutes.
-
-— CodeVerse Team"""
-    )
-
-
+# ==========================================================
+# Invitation Email
+# ==========================================================
 def send_invitation_email(to_email: str, invite_link: str):
-    send_email(
-        to_email,
-        "CodeVerse Repository Invitation",
-        f"""Hello,
+    body = f"""
+Hello,
 
 You have been invited to CodeVerse.
 
-Click the link below to accept your invitation:
+Click the link below to accept your invitation and access your assigned repositories.
 
 {invite_link}
 
-— CodeVerse Team"""
+If you were not expecting this invitation, simply ignore this email.
+
+— CodeVerse Team
+"""
+
+    send_email(
+        subject="CodeVerse Repository Invitation",
+        to_email=to_email,
+        body=body,
+    )
+
+
+# ==========================================================
+# Reset Password OTP
+# ==========================================================
+def send_reset_password_email(to_email: str, otp: str):
+    body = f"""
+Hello,
+
+You requested to reset your CodeVerse password.
+
+Your password reset code is:
+
+🔐 {otp}
+
+This code will expire in 10 minutes.
+
+If you did not request this, please ignore this email.
+
+— CodeVerse Team
+"""
+
+    send_email(
+        subject="CodeVerse - Reset Password Code",
+        to_email=to_email,
+        body=body,
     )
