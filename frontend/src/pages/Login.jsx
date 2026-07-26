@@ -22,33 +22,70 @@ console.log("BACKEND URL:", API_URL);
   const memoizedBG = useMemo(() => <GraphBackground />, []);
 
   const handleLogin = async (e) => {
-    if (e) e.preventDefault();
-    setSubmitting(true);
-    setErrorMessage("");
-    
-    try {
-      const res = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, role }),
-      });
+  if (e) e.preventDefault();
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Login failed");
+  setSubmitting(true);
+  setErrorMessage("");
 
-      if (data.mfa_required) {
-        navigate("/mfa", { state: { user_id: data.user_id } });
-      } else {
-        localStorage.setItem("token", data.access_token);
-        const payload = JSON.parse(atob(data.access_token.split(".")[1]));
-        navigate(payload.role === "admin" ? "/adminDashboard" : "/developerDashboard");
-      }
-    } catch (err) {
-      setErrorMessage(err.message);
-    } finally {
-      setSubmitting(false);
+  try {
+    const res = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        role,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || "Login failed");
     }
-  };
+
+    // MFA flow remains exactly the same
+    if (data.mfa_required) {
+      navigate("/mfa", {
+        state: {
+          user_id: data.user_id,
+        },
+      });
+      return;
+    }
+
+    // Save JWT
+    localStorage.setItem("token", data.access_token);
+
+    const payload = JSON.parse(atob(data.access_token.split(".")[1]));
+
+    // Check if user came from an invitation
+    const pendingInviteToken = localStorage.getItem("pendingInviteToken");
+
+    // Developer + Pending Invite
+    if (
+      payload.role === "developer" &&
+      pendingInviteToken
+    ) {
+      navigate(`/accept-invite/${pendingInviteToken}`);
+      return;
+    }
+
+    // Normal Login
+    navigate(
+      payload.role === "admin"
+        ? "/adminDashboard"
+        : "/developerDashboard"
+    );
+
+  } catch (err) {
+    setErrorMessage(err.message);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   return (
     <div className="h-screen w-full bg-[#020405] text-gray-200 font-sans overflow-hidden flex selection:bg-cyan-500/30 relative">
