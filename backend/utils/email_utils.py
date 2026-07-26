@@ -31,22 +31,43 @@ def send_email(subject: str, to_email: str, body: str):
     msg["From"] = SENDER_EMAIL
     msg["To"] = to_email
     msg.set_content(body)
-    print("SMTP_SERVER:", SMTP_SERVER)
-    print("SMTP_PORT:", SMTP_PORT)
-    print("SENDER_EMAIL:", SENDER_EMAIL)
-    print("PASSWORD EXISTS:", bool(SENDER_PASSWORD))
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
 
-        print(f"✅ Email sent successfully to {to_email}")
+    try:
+        print("STEP 1: Connecting...")
+
+        server = smtplib.SMTP(
+            SMTP_SERVER,
+            SMTP_PORT,
+            timeout=20
+        )
+
+        print("STEP 2: Connected")
+
+        server.ehlo()
+
+        print("STEP 3: Starting TLS")
+
+        server.starttls()
+
+        print("STEP 4: TLS OK")
+
+        server.ehlo()
+
+        print("STEP 5: Logging in")
+
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+
+        print("STEP 6: Logged in")
+
+        server.send_message(msg)
+
+        print("STEP 7: Email sent")
+
+        server.quit()
 
     except Exception as e:
-        print(f"❌ Email sending failed: {e}")
+        print("EMAIL ERROR:", repr(e))
         raise
-
 
 # ==========================================================
 # Email Verification OTP
