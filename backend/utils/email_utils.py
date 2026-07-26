@@ -1,69 +1,75 @@
 import os
-import smtplib
+import base64
 from email.message import EmailMessage
+
 from dotenv import load_dotenv
 
-# Load environment variables
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+
 load_dotenv()
 
-# ------------------------------
-# Gmail SMTP configuration
-# ------------------------------
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-
 EMAIL_FROM = os.getenv("EMAIL_FROM")
-EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
+
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
 
 if not EMAIL_FROM:
-    raise Exception("❌ EMAIL_FROM environment variable is missing.")
+    raise Exception("EMAIL_FROM is missing")
 
-if not EMAIL_APP_PASSWORD:
-    raise Exception("❌ EMAIL_APP_PASSWORD environment variable is missing.")
+if not GMAIL_CLIENT_ID:
+    raise Exception("GMAIL_CLIENT_ID is missing")
+
+if not GMAIL_CLIENT_SECRET:
+    raise Exception("GMAIL_CLIENT_SECRET is missing")
+
+if not GMAIL_REFRESH_TOKEN:
+    raise Exception("GMAIL_REFRESH_TOKEN is missing")
 
 
 # ==========================================================
-# Generic email sender
+# Generic email sender using Gmail API (HTTPS)
 # ==========================================================
 def send_email(subject: str, to_email: str, body: str):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_FROM
-    msg["To"] = to_email
-    msg.set_content(body)
-
     try:
-        print("STEP 1: Connecting...")
+        print("STEP 1: Creating Gmail credentials...")
 
-        server = smtplib.SMTP(
-            SMTP_SERVER,
-            SMTP_PORT,
-            timeout=20
+        creds = Credentials(
+            token=None,
+            refresh_token=GMAIL_REFRESH_TOKEN,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=GMAIL_CLIENT_ID,
+            client_secret=GMAIL_CLIENT_SECRET,
         )
 
-        print("STEP 2: Connected")
+        print("STEP 2: Refreshing access token...")
 
-        server.ehlo()
+        creds.refresh(Request())
 
-        print("STEP 3: Starting TLS")
+        print("STEP 3: Building Gmail service...")
 
-        server.starttls()
+        service = build("gmail", "v1", credentials=creds)
 
-        print("STEP 4: TLS OK")
+        message = EmailMessage()
+        message["To"] = to_email
+        message["From"] = EMAIL_FROM
+        message["Subject"] = subject
+        message.set_content(body)
 
-        server.ehlo()
+        raw_message = base64.urlsafe_b64encode(
+            message.as_bytes()
+        ).decode()
 
-        print("STEP 5: Logging in")
+        print("STEP 4: Sending email...")
 
-        server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
+        service.users().messages().send(
+            userId="me",
+            body={"raw": raw_message}
+        ).execute()
 
-        print("STEP 6: Logged in")
-
-        server.send_message(msg)
-
-        print("STEP 7: Email sent")
-
-        server.quit()
+        print("STEP 5: Email sent successfully!")
 
     except Exception as e:
         print("EMAIL ERROR:", repr(e))
