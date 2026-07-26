@@ -12,14 +12,14 @@ load_dotenv()
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
+EMAIL_FROM = os.getenv("EMAIL_FROM")
+EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 
-if not SENDER_EMAIL:
-    raise Exception("❌ SENDER_EMAIL environment variable is missing.")
+if not EMAIL_FROM:
+    raise Exception("❌ EMAIL_FROM environment variable is missing.")
 
-if not SENDER_PASSWORD:
-    raise Exception("❌ SENDER_PASSWORD environment variable is missing.")
+if not EMAIL_APP_PASSWORD:
+    raise Exception("❌ EMAIL_APP_PASSWORD environment variable is missing.")
 
 
 # ==========================================================
@@ -28,7 +28,7 @@ if not SENDER_PASSWORD:
 def send_email(subject: str, to_email: str, body: str):
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = SENDER_EMAIL
+    msg["From"] = EMAIL_FROM
     msg["To"] = to_email
     msg.set_content(body)
 
@@ -55,7 +55,7 @@ def send_email(subject: str, to_email: str, body: str):
 
         print("STEP 5: Logging in")
 
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.login(EMAIL_FROM, EMAIL_APP_PASSWORD)
 
         print("STEP 6: Logged in")
 
@@ -68,6 +68,7 @@ def send_email(subject: str, to_email: str, body: str):
     except Exception as e:
         print("EMAIL ERROR:", repr(e))
         raise
+
 
 # ==========================================================
 # Email Verification OTP
