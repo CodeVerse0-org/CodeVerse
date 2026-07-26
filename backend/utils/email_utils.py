@@ -31,7 +31,10 @@ def send_email(subject: str, to_email: str, body: str):
     msg["From"] = SENDER_EMAIL
     msg["To"] = to_email
     msg.set_content(body)
-
+    print("SMTP_SERVER:", SMTP_SERVER)
+    print("SMTP_PORT:", SMTP_PORT)
+    print("SENDER_EMAIL:", SENDER_EMAIL)
+    print("PASSWORD EXISTS:", bool(SENDER_PASSWORD))
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
