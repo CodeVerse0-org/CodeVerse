@@ -68,21 +68,26 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
             )
             db.commit()
 
-        # Find assigned developers
-        links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
+        # -------------------------------------------------------------
+        # 1. FETCH ASSIGNED DEVELOPERS FOR THIS REPO FROM user_repositories
+        # -------------------------------------------------------------
+        assigned_links = db.query(UserRepository).filter(UserRepository.repo_id == repo_id).all()
+        assigned_developer_ids = [link.user_id for link in assigned_links]
 
         print(f"🔍 WEBHOOK TARGET REPO ID: {repo_id}")
-        print(f"👥 FOUND ASSIGNED DEVELOPER IDs: {[l.user_id for l in links]}")
+        print(f"👥 ASSIGNED DEVELOPER IDs: {assigned_developer_ids}")
 
         notification_title = "New Commits Pushed"
         notification_msg = f"{pusher} pushed {commit_count} commit(s) to {branch}. Would you like to sync the repo for an updated graph?"
 
         created_notifications = []
 
-        # Create & Persist Notifications
-        for link in links:
+        # -------------------------------------------------------------
+        # 2. PERSIST NOTIFICATION FOR EACH ASSIGNED DEVELOPER
+        # -------------------------------------------------------------
+        for dev_id in assigned_developer_ids:
             notif = Notification(
-                user_id=link.user_id,
+                user_id=dev_id,
                 repo_id=repo_id,
                 title=notification_title,
                 message=notification_msg,
@@ -91,7 +96,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                 created_at=datetime.now(timezone.utc)
             )
             db.add(notif)
-            created_notifications.append((link.user_id, notif))
+            created_notifications.append((dev_id, notif))
 
         db.commit()
 
@@ -105,10 +110,12 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
             details=f"{pusher} pushed new commits to {branch}."
         )
 
-        # Emit Real-time Socket Event to Assigned Developers
-        for user_id, notif in created_notifications:
+        # -------------------------------------------------------------
+        # 3. EMIT REAL-TIME SOCKET EVENT TO ASSIGNED DEVELOPERS ONLY
+        # -------------------------------------------------------------
+        for dev_id, notif in created_notifications:
             db.refresh(notif)
-            payload = {
+            socket_payload = {
                 "id": notif.id,
                 "repoId": repo_id,
                 "repoName": repo_name,
@@ -121,7 +128,8 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                 "isRead": False,
                 "actionRequired": True
             }
-            await emit_to_developer(user_id, "repo_updated", payload)
+            # Emits only to room: developer_{user_id}
+            await emit_to_developer(dev_id, "repo_updated", socket_payload)
 
         # Emit Real-time Socket Event to Admin
         if admin_id:
@@ -137,7 +145,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                 }
             )
 
-        return {"status": "success"}
+        return {"status": "success", "notified_developers": assigned_developer_ids}
 
     except Exception as e:
         print(f"❌ WEBHOOK PROCESSING ERROR: {str(e)}")

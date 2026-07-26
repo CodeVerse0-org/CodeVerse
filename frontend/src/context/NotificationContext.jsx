@@ -28,19 +28,20 @@ export const NotificationProvider = ({ children }) => {
   useEffect(() => {
     fetchNotifications();
 
+    // Get current logged-in user
     const userData = JSON.parse(localStorage.getItem("user") || "{}");
     const userId = userData.id || userData.user_id;
 
     if (userId) {
-      console.log(`🔌 Joining developer socket room for User ID: ${userId}`);
+      // Connect developer to their private socket room
+      console.log(`🔌 Joining developer socket room: developer_${userId}`);
       socket.emit("join_developer", { userId: userId });
     }
 
-    // Handle incoming real-time pushes
+    // Real-time Push Handler
     const handleRepoUpdated = (newNotif) => {
-      console.log("🔔 REALTIME NOTIFICATION RECEIVED:", newNotif);
+      console.log("🔔 NEW REPO COMMIT NOTIFICATION RECEIVED:", newNotif);
       setNotifications((prev) => {
-        // Avoid duplicate notification insertions
         if (prev.some((n) => n.id === newNotif.id)) return prev;
         return [newNotif, ...prev];
       });
@@ -55,9 +56,7 @@ export const NotificationProvider = ({ children }) => {
 
   const markAllAsRead = async () => {
     const token = localStorage.getItem("token");
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, isRead: true }))
-    );
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
 
     try {
       await fetch(`${API_URL}/api/notifications/read-all`, {
