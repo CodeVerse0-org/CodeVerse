@@ -80,7 +80,7 @@ class Repository(Base):
 
     id = Column(BigInteger, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
-    full_name = Column(String(255))
+    full_name = Column(String(255), unique=True, index=True)
     html_url = Column(Text)
     private = Column(Boolean, default=False)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) # Changed nullable=False to True
@@ -114,6 +114,9 @@ class AuditLog(Base):
     target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String(100), nullable=False)
     repository_id = Column(BigInteger, nullable=True)
-    repository_name = Column(String(255), nullable=True)
+    
+    # Corrected Foreign Key definition
+    repository_name = Column(String(255), ForeignKey("repositories.full_name"), nullable=True)
+    
     details = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())

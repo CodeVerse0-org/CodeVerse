@@ -29,7 +29,7 @@ def get_all_audit_logs(current_user: dict = Depends(get_current_user)):
                     a.actor_id, 
                     a.target_user_id, 
                     a.action, 
-                    a.repository_id, 
+                    a.repo_id, 
                     a.repository_name, 
                     a.details, 
                     a.created_at,
