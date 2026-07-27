@@ -16,19 +16,17 @@ class Settings(BaseSettings):
     GITHUB_APP_SLUG: Optional[str] = os.getenv("GITHUB_APP_SLUG")
     GITHUB_WEBHOOK_SECRET: Optional[str] = os.getenv("GITHUB_WEBHOOK_SECRET")
     
-    # Declare both the path AND text fields
     GITHUB_PRIVATE_KEY_PATH: Optional[str] = os.getenv("GITHUB_PRIVATE_KEY_PATH")
     GITHUB_PRIVATE_KEY_TEXT: Optional[str] = os.getenv("GITHUB_PRIVATE_KEY_TEXT")
 
-    FRONTEND_URL: str = "https://www.codeverse.codes"
+    # Domain configuration for public frontend URLs
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://codeverse.codes")
 
     @property
     def GITHUB_PRIVATE_KEY(self) -> Optional[str]:
-        # 1. Check raw text environment variable (Production)
         if self.GITHUB_PRIVATE_KEY_TEXT:
             return self.GITHUB_PRIVATE_KEY_TEXT.strip()
             
-        # 2. Fallback to reading file path (Local Development)
         if self.GITHUB_PRIVATE_KEY_PATH and os.path.exists(self.GITHUB_PRIVATE_KEY_PATH):
             with open(self.GITHUB_PRIVATE_KEY_PATH, "r") as f:
                 return f.read()
