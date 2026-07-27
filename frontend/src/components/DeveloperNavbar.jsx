@@ -2,29 +2,55 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNotification } from "../context/NotificationContext.jsx";
-import { RefreshCw, Bell } from "lucide-react";
+import { RefreshCw, Bell, Check, CheckCircle2 } from "lucide-react";
 
 export default function DeveloperNavbar() {
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [syncingRepoId, setSyncingRepoId] = useState(null);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState("");
 
-  const { notifications, unreadCount, markAllAsRead } = useNotification();
+  const { notifications, unreadCount, markAllAsRead, markAsRead } = useNotification();
 
   const handleLogout = () => {
     localStorage.clear();
     navigate("/login");
   };
 
-  const handleSyncRepo = (repoId) => {
-    setDropdownOpen(false);
-    // Redirect developer to visualization page with sync trigger
-    navigate(`/visualization/graph/${repoId}?sync=true`);
+  const handleSyncRepo = async (notif) => {
+    const repoId = notif.repoId;
+    setSyncingRepoId(repoId);
+
+    try {
+      // Mark notification as read when sync is clicked
+      if (notif.id && markAsRead) {
+        await markAsRead(notif.id);
+      }
+
+      setSyncSuccessMsg("New commits synchronized! Opening updated graph...");
+
+      // Short delay to show user feedback before navigation
+      setTimeout(() => {
+        setSyncingRepoId(null);
+        setSyncSuccessMsg("");
+        setDropdownOpen(false);
+        navigate(`/visualization/graph/${repoId}?sync=true`);
+      }, 1200);
+    } catch (err) {
+      console.error("Failed to mark sync notification read:", err);
+      setSyncingRepoId(null);
+      setDropdownOpen(false);
+      navigate(`/visualization/graph/${repoId}?sync=true`);
+    }
   };
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-[#0D1117] border-b border-[#21262D] px-6 py-4 flex items-center justify-between rounded-t-xl">
       {/* Logo */}
-      <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate("/")}>
+      <div
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => navigate("/")}
+      >
         <div className="w-8 h-8 bg-gradient-to-tr from-[#3FB950] to-[#238636] rounded-lg flex items-center justify-center font-bold text-white">
           C
         </div>
@@ -56,26 +82,44 @@ export default function DeveloperNavbar() {
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllAsRead}
-                    className="text-xs text-[#3FB950] hover:underline"
+                    className="text-xs text-[#3FB950] hover:underline flex items-center gap-1"
                   >
+                    <Check className="w-3 h-3" />
                     Mark all read
                   </button>
                 )}
               </div>
 
+              {/* Toast message inside dropdown upon clicking sync */}
+              {syncSuccessMsg && (
+                <div className="bg-[#238636]/20 border-b border-[#238636] p-2.5 text-xs text-[#3FB950] flex items-center gap-2 px-4">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{syncSuccessMsg}</span>
+                </div>
+              )}
+
               <div className="max-h-80 overflow-y-auto divide-y divide-[#21262D]">
                 {notifications.length === 0 ? (
                   <div className="p-6 text-center text-sm text-[#8B949E]">
-                    No new notifications.
+                    No notifications available.
                   </div>
                 ) : (
                   notifications.map((notif) => (
                     <div
                       key={notif.id || Math.random()}
-                      className={`p-4 ${notif.isRead ? "bg-[#161B22]" : "bg-[#1F242C]"}`}
+                      className={`p-4 transition ${
+                        notif.isRead ? "bg-[#161B22] opacity-75" : "bg-[#1F242C]"
+                      }`}
                     >
                       <div className="flex justify-between items-start gap-2">
-                        <h4 className="text-xs font-bold text-white">{notif.title}</h4>
+                        <div className="flex items-center gap-1.5">
+                          {!notif.isRead && (
+                            <span className="w-2 h-2 rounded-full bg-[#3FB950] shrink-0" />
+                          )}
+                          <h4 className="text-xs font-bold text-white">
+                            {notif.title}
+                          </h4>
+                        </div>
                         <span className="text-[10px] text-[#8B949E] whitespace-nowrap">
                           {notif.time || "Just now"}
                         </span>
@@ -85,14 +129,24 @@ export default function DeveloperNavbar() {
                         {notif.message}
                       </p>
 
-                      {/* Sync Button Action */}
+                      {/* Sync Action */}
                       {notif.repoId && (
                         <button
-                          onClick={() => handleSyncRepo(notif.repoId)}
-                          className="mt-3 w-full py-1.5 px-3 bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition"
+                          onClick={() => handleSyncRepo(notif)}
+                          disabled={syncingRepoId === notif.repoId}
+                          className="mt-3 w-full py-1.5 px-3 bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#1f5927] text-white text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition"
                         >
-                          <RefreshCw size={12} className="animate-spin-slow" />
-                          Sync Graph Now
+                          <RefreshCw
+                            size={12}
+                            className={
+                              syncingRepoId === notif.repoId
+                                ? "animate-spin"
+                                : ""
+                            }
+                          />
+                          {syncingRepoId === notif.repoId
+                            ? "Syncing Graph..."
+                            : "Sync Graph Now"}
                         </button>
                       )}
                     </div>
