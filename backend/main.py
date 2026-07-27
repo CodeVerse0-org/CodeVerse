@@ -93,11 +93,10 @@ fastapi_app = FastAPI(
 # --------------------
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],  # Allows GitHub Webhook IPs & external origin testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex=r"https://code-verse-.*\.vercel\.app",
 )
 
 # --------------------
@@ -114,7 +113,7 @@ fastapi_app.include_router(users_router, prefix="/api/user")
 fastapi_app.include_router(summaries_router, prefix="/api/summaries")
 fastapi_app.include_router(visualization_router, prefix="/api/repos", tags=["Visualization"])
 fastapi_app.include_router(chatbot_router)
-fastapi_app.include_router(webhook_router)
+fastapi_app.include_router(webhook_router)  # Handles /api/github/webhook
 fastapi_app.include_router(audit_logs_router)
 fastapi_app.include_router(notification_router)
 fastapi_app.include_router(smtp_test_router)
