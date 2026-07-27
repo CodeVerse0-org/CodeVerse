@@ -54,42 +54,10 @@ def fuzzy_match(query: str, target: str, threshold: float = 0.75) -> bool:
     ratio = SequenceMatcher(None, query.lower(), target.lower()).ratio()
     return ratio >= threshold
 
-# ================= REPO PATH RESOLVER (FIX FOR SYNCHRONIZATION ERROR) ================= #
-
-def resolve_repo_path(repo_name: str, base_dir: str = "./temp_repos") -> Optional[str]:
-    """
-    Robustly resolves local repository path by checking:
-    1. Exact replaced path (e.g. owner_repo)
-    2. Bare repo name (e.g. repo)
-    3. Case-insensitive folder search in base_dir
-    """
-    os.makedirs(base_dir, exist_ok=True)
-    
-    # Candidate 1: owner_repo format (e.g., smaryamali1095-png_authorization-project)
-    repo_folder = repo_name.replace("/", "_")
-    candidate1 = os.path.join(base_dir, repo_folder)
-    if os.path.exists(candidate1):
-        return candidate1
-
-    # Candidate 2: bare repo name format (e.g., authorization-project)
-    bare_name = repo_name.split("/")[-1] if "/" in repo_name else repo_name
-    candidate2 = os.path.join(base_dir, bare_name)
-    if os.path.exists(candidate2):
-        return candidate2
-
-    # Candidate 3: Case-insensitive search inside base_dir
-    if os.path.exists(base_dir):
-        for entry in os.listdir(base_dir):
-            entry_path = os.path.join(base_dir, entry)
-            if os.path.isdir(entry_path):
-                if entry.lower() in [repo_folder.lower(), bare_name.lower()]:
-                    return entry_path
-
-    return None
-
 # ================= FORMAT PREFERENCE DETECTOR ================= #
 
 def extract_format_preferences(msg: str) -> Dict[str, Optional[str]]:
+    """Extracts formatting guidelines from the user query."""
     msg_low = msg.lower()
     prefs = {
         "format": None,      # 'bullets', 'paragraphs'
@@ -97,11 +65,13 @@ def extract_format_preferences(msg: str) -> Dict[str, Optional[str]]:
         "include_code": False
     }
 
+    # Format preferences
     if any(k in msg_low for k in ["bullet", "bullets", "bullet points", "list"]):
         prefs["format"] = "bullets"
     elif any(k in msg_low for k in ["paragraph", "paragraphs", "continuous text"]):
         prefs["format"] = "paragraphs"
 
+    # Style preferences
     if any(k in msg_low for k in ["concise", "short", "brief", "summarized", "quick"]):
         prefs["style"] = "concise"
     elif any(k in msg_low for k in ["don't understand", "dont understand", "explain again", "simpler", "simple words", "easy words", "eli5"]):
@@ -109,12 +79,14 @@ def extract_format_preferences(msg: str) -> Dict[str, Optional[str]]:
     elif any(k in msg_low for k in ["detail", "detailed", "deep dive", "in depth"]):
         prefs["style"] = "detailed"
 
+    # Code inclusion preferences
     if any(k in msg_low for k in ["with code", "include code", "show code", "code examples", "with snippet"]):
         prefs["include_code"] = True
 
     return prefs
 
 def build_preference_instructions(prefs: Dict[str, Optional[str]]) -> str:
+    """Generates prompt instructions according to detected user choices."""
     instructions = []
     
     if prefs["style"] == "simple":
@@ -240,6 +212,7 @@ def detect_file_request(msg: str) -> bool:
     return has_ext or has_path_slash
 
 def extract_filename(msg: str) -> Optional[str]:
+    """Extracts filenames or relative paths from the message."""
     words = msg.replace(",", " ").replace(":", " ").replace("`", " ").split()
     for w in words:
         clean_w = w.strip().strip("'\"()[]{}")
@@ -251,9 +224,11 @@ def extract_filename(msg: str) -> Optional[str]:
     return None
 
 def get_exact_file(repo_path: str, filename_or_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """Searches for a file by exact full relative path match or base filename match."""
     normalized_target = filename_or_path.replace("\\", "/").lower().strip("/")
     target_base = os.path.basename(normalized_target)
 
+    # Priority 1: Match full relative path ending
     for root, _, files in os.walk(repo_path):
         for f in files:
             full_path = os.path.join(root, f)
@@ -265,6 +240,7 @@ def get_exact_file(repo_path: str, filename_or_path: str) -> Tuple[Optional[str]
                 except Exception:
                     return None, None
 
+    # Priority 2: Match filename base with fuzzy fallback
     for root, _, files in os.walk(repo_path):
         for f in files:
             if f.lower() == target_base or fuzzy_match(f.lower(), target_base, threshold=0.85):
@@ -290,18 +266,11 @@ def detect_intent(msg: str) -> str:
     msg_raw = msg.lower().strip()
     msg_compact = re.sub(r'[^a-z0-9]', '', msg_raw)
 
+    # 0. Dot / Single Punctuation Only
     if re.match(r"^[\.\?\!\,\;\:]+$", msg_raw):
         return "invalid_query"
 
-    personal_triggers = [
-        "how are you", "how r u", "how are u", "how do you do", "what is your name", 
-        "whats your name", "who are you", "who made you", "who created you", "tell me about yourself",
-        "what can you do", "where do you live", "are you human", "are you ai", "are you an ai",
-        "who built you", "what is codeverse"
-    ]
-    if any(pt in msg_raw for pt in personal_triggers) or any(fuzzy_match(msg_raw, pt) for pt in personal_triggers):
-        return "personal_question"
-
+    # 1. Greetings & Farewell Rules
     greetings = ["hi", "hello", "hey", "hello there", "hey hi", "good morning", "good evening", "greetings"]
     farewells = ["bye", "goodbye", "cya", "see you", "exit", "quit", "bye bye"]
     
@@ -310,6 +279,7 @@ def detect_intent(msg: str) -> str:
     if msg_raw in farewells or any(fuzzy_match(msg_raw, f) for f in farewells):
         return "farewell"
 
+    # 2. Conversational Fillers / Out-of-Context Acknowledgments
     gibberish_list = [
         "ok", "okay", "great", "nice", "cool", "shh", "shhh", "shhhh", "lol", 
         "hmm", "hmmm", "haha", "hehe", "yep", "nope", "thanks", "thank you", "got it", "understoood", "okk"
@@ -317,6 +287,7 @@ def detect_intent(msg: str) -> str:
     if msg_raw in gibberish_list or re.match(r"^(sh+)+$", msg_raw) or re.match(r"^(hm+)+$", msg_raw):
         return "gibberish"
 
+    # 3. Continuous Follow-up Explanation Requests
     follow_up_triggers = [
         "i don't understand", "i dont understand", "didn't get it", "didnt get it",
         "explain again", "explain me again", "explain concise", "explain concisely",
@@ -326,6 +297,7 @@ def detect_intent(msg: str) -> str:
     if any(ft in msg_raw for ft in follow_up_triggers):
         return "follow_up_explanation"
 
+    # 4. Repository Overview Request (Handles all variations)
     summary_triggers = [
         "explain this repository", "explain repository", "explain the repository", 
         "explain me repository", "explain codebase", "explain code base", 
@@ -339,6 +311,7 @@ def detect_intent(msg: str) -> str:
     ):
         return "summary"
 
+    # 5. Repeated Characters / Nonsense Words / Gibberish Strings
     if re.match(r"^(.)\1+$", msg_compact) or re.match(r"^(?:[b-df-hj-np-tv-z]{3,})$", msg_compact):
         return "invalid_query"
 
@@ -346,6 +319,7 @@ def detect_intent(msg: str) -> str:
     if any(p in msg_raw for p in nonsense_patterns) and not detect_file_request(msg_raw):
         return "invalid_query"
 
+    # 6. Complaints / Criticism / Out-of-Bounds Remarks
     complaint_keywords = [
         "wrong answer", "wrong answers", "you are wrong", "you are bad", "bad bot", 
         "bad ai", "useless", "stupid", "incorrect answer", "not helpful"
@@ -353,10 +327,12 @@ def detect_intent(msg: str) -> str:
     if any(k in msg_raw for k in complaint_keywords):
         return "invalid_query"
 
+    # 7. Incomplete / Ambiguous Queries
     incomplete_queries = ["explain", "what", "now", "tell me", "show me", "how", "why", "where", "this", "file"]
     if msg_raw in incomplete_queries:
         return "incomplete_query"
 
+    # 8. Unrelated / Out-of-bounds non-programming questions
     out_of_bounds_keywords = [
         "weather", "sports", "football", "cricket", "president", "politics", "election",
         "recipe", "movie", "song", "joke", "marry me", "favorite color", "salary", "dinner", "lunch"
@@ -364,6 +340,7 @@ def detect_intent(msg: str) -> str:
     if any(k in msg_raw for k in out_of_bounds_keywords):
         return "out_of_bounds"
 
+    # 9. General Programming Question
     general_prog_keywords = [
         "what is a closure", "explain recursion", "difference between let and const",
         "what is async await", "how does rest api work", "what is high order function",
@@ -372,6 +349,7 @@ def detect_intent(msg: str) -> str:
     if any(gpk in msg_raw for gpk in general_prog_keywords):
         return "general_programming"
 
+    # 10. Strict File Counting Triggers
     if "how many frontend" in msg_raw or "frontend file count" in msg_raw or "number of frontend files" in msg_raw:
         return "frontend_count"
     if "how many backend" in msg_raw or "backend file count" in msg_raw or "number of backend files" in msg_raw:
@@ -379,6 +357,7 @@ def detect_intent(msg: str) -> str:
     if "how many files" in msg_raw or "total files" in msg_raw or "file count" in msg_raw or "number of files" in msg_raw:
         return "file_count"
 
+    # 11. File Listings
     list_triggers = ["list", "show", "give", "names", "name", "tell me the files", "what are the files", "which files"]
     if any(x in msg_raw for x in list_triggers):
         if "frontend" in msg_raw and "backend" in msg_raw:
@@ -389,6 +368,7 @@ def detect_intent(msg: str) -> str:
             return "backend_files"
         return "all_files"
 
+    # 12. Categorized Frontend / Backend Search Scope
     if any(x in msg_raw for x in ["frontend", "ui", "pages", "routing", "components", "react", "vue", "angular", "css", "tailwind"]):
         return "frontend_query"
     if any(x in msg_raw for x in ["backend", "server", "api", "controller", "routes", "middleware", "authentication", "services", "models", "database"]):
@@ -397,15 +377,18 @@ def detect_intent(msg: str) -> str:
     if "where is" in msg_raw or "used in" in msg_raw:
         return "where_used"
 
+    # 13. Code Writing / Modification Request
     if any(x in msg_raw for x in ["write", "create", "implement", "build", "fix", "modify", "complete code", "add route", "add component"]):
         return "coding_request"
 
     if any(x in msg_raw for x in ["what is", "concept", "how does", "why"]):
         return "concept"
 
+    # Direct File/Path Explanation Fallback Check
     if detect_file_request(msg_raw):
         return "rag"
 
+    # Short / Unrecognized inputs default to invalid
     if len(msg_raw.split()) < 2 and not detect_file_request(msg_raw):
         return "invalid_query"
 
@@ -591,30 +574,27 @@ async def process_chat_message(repo_name: str, message: str, history: Optional[L
     # 2. INTENT CLASSIFICATION & INCOMPLETE / IRRELEVANT FILTERING
     raw_intent = detect_intent(msg)
 
-    if raw_intent == "personal_question":
-        prompt = f"""
-You are CodeVerse AI, an intelligent software engineering assistant specializing in code analysis and repository exploration.
-Answer the following personal or identity question warmly, concisely, and professionally. Always mention that you are CodeVerse AI, fully focused on assisting with repository '{repo_name}'.
-
-USER QUESTION: {msg}
-"""
-        return llm.invoke(prompt).content.strip()
-
+    # Incomplete / Nonsensical / Out of Context / Complaints Check
     if raw_intent in ["invalid_query", "incomplete_query"]:
         return f"This question is incomplete or out of context. Please ask a clear, complete, and relevant question about repository '{repo_name}' or provide a specific file path."
 
+    # Natural Greetings
     if raw_intent == "greeting":
         return f"Hello! 👋 I'm ready to help you explore and analyze '{repo_name}'. Feel free to ask about the frontend, backend, APIs, database, or specific code."
 
+    # Natural Farewells
     if raw_intent == "farewell":
         return f"Goodbye! 👋 Let me know whenever you're ready to explore '{repo_name}' again."
 
+    # Casual Fillers & Context Redirection
     if raw_intent == "gibberish":
         return f"This question is incomplete or out of context. Please ask a clear, complete, and relevant question about repository '{repo_name}'."
 
+    # Unrelated Non-Programming Questions Redirect
     if raw_intent == "out_of_bounds":
         return f"I specialize in software development and analyzing repository '{repo_name}'. Please ask a relevant question about the project's code, architecture, APIs, frontend, backend, or database setup."
 
+    # Answer General Programming Questions Directly
     if raw_intent == "general_programming":
         prompt = f"""You are CodeVerse AI, an expert programming assistant.
 Answer the following general programming question clearly and concisely in paragraph form:
@@ -622,15 +602,17 @@ Answer the following general programming question clearly and concisely in parag
 QUESTION: {msg}"""
         return llm.invoke(prompt).content.strip()
 
-    # DYNAMIC PATH RESOLUTION FIX
-    repo_path = resolve_repo_path(repo_name, base_dir="./temp_repos")
-    
-    if not repo_path:
+    repo_folder = repo_name.replace("/", "_")
+    repo_path = f"./temp_repos/{repo_folder}"
+    db_path = f"./db/{repo_folder}"
+
+    if not os.path.exists(repo_path):
         return f"Repository '{repo_name}' was not found locally. Please ensure it is synchronized."
 
     inventory = build_inventory(repo_path)
     arch_map = build_architecture_map(inventory)
 
+    # File Count Direct Responses
     if raw_intent == "frontend_count":
         return f"There are {arch_map['frontend_files']} frontend files in repository '{repo_name}'."
     if raw_intent == "backend_count":
@@ -638,18 +620,23 @@ QUESTION: {msg}"""
     if raw_intent == "file_count":
         return f"There are {arch_map['total_files']} total files in repository '{repo_name}'."
 
+    # Metadata & File Listing
     if raw_intent == "frontend_backend_all": return format_files_with_headings(inventory, repo_name)
     if raw_intent == "all_files": return f"📁 FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["all"])
     if raw_intent == "frontend_files": return f"📁 FRONTEND FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["frontend"])
     if raw_intent == "backend_files": return f"📁 BACKEND FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["backend"])
 
+    # Repository Overview Trigger (Consolidated for all phrasing variations)
     if raw_intent == "summary":
         return generate_summary(repo_path, inventory, llm, arch_map, user_request=msg)
 
+    # Extract Formatting Preferences (concise, bullets, code, simple terms)
     user_prefs = extract_format_preferences(msg)
     custom_formatting_instructions = build_preference_instructions(user_prefs)
 
+    # 3. CONTINUOUS FOLLOW-UP EXPLANATION RE-ANALYSIS ("Explain me again" handling)
     if raw_intent == "follow_up_explanation" and history:
+        # Check if previous query was a repository summary request
         last_user_turn = ""
         for turn in reversed(history):
             if turn.get("role") == "user":
@@ -658,6 +645,7 @@ QUESTION: {msg}"""
         
         last_intent = detect_intent(last_user_turn) if last_user_turn else ""
         
+        # If the user previously asked to explain the repository, re-generate repository summary
         if last_intent == "summary":
             return generate_summary(repo_path, inventory, llm, arch_map, user_request=msg)
 
@@ -684,8 +672,10 @@ Provide an updated explanation re-analyzing the previous context following the e
 """
         return llm.invoke(followup_prompt).content.strip()
 
+    # Contextual Reformulation for Follow-ups
     contextualized_msg = reformulate_query_with_history(msg, history, llm)
 
+    # Direct File Reading Requests & Exact Path Matches
     is_file_query = detect_file_request(msg)
     filename = extract_filename(msg)
 
@@ -702,16 +692,77 @@ Provide an updated explanation re-analyzing the previous context following the e
             return f"📄 FILE: {file_path}\n\n```\n{file_content[:8000]}\n```"
 
         trimmed_code = file_content[:8000]
-        prompt = f"""
-You are CodeVerse AI, analyzing the file '{file_path}' in repository '{repo_name}'.
-Provide a clear breakdown of this file.
+        
+        # Pull formatting instructions or fallback to default file explanation rules
+        file_format_rule = (
+            custom_formatting_instructions 
+            if custom_formatting_instructions 
+            else "- Display the main code structure/snippets first in a code block.\n- Explain the file purpose, imports, functions, execution flow, and API/database connections if present."
+        )
 
-{custom_formatting_instructions}
+        prompt = f"""You are CodeVerse AI analyzing repository '{repo_name}'.
+Explain the code and logic in source file '{file_path}'. Always include key code snippets from the file when explaining.
+
+FORMAT INSTRUCTIONS:
+{file_format_rule}
 
 FILE CONTENT:
-{trimmed_code}
-"""
-        return llm.invoke(prompt).content.strip()
+{trimmed_code}"""
+        
+        explanation = llm.invoke(prompt).content.strip()
+        return f"📄 FILE: {file_path}\n\n{explanation}"
 
-    # RAG / Default summary fallback
-    return generate_summary(repo_path, inventory, llm, arch_map, user_request=contextualized_msg)
+    # VECTOR DB RETRIEVAL SETUP
+    if repo_name not in sessions or sessions[repo_name].get("retriever") is None:
+        if os.path.exists(db_path) and len(os.listdir(db_path)) > 0:
+            vs = Chroma(persist_directory=db_path, embedding_function=embeddings)
+        else:
+            docs = []
+            for f in inventory["all"]:
+                filename_base = os.path.basename(f)
+                if filename_base in IGNORE_FILES or f.endswith((".json", ".lock")): 
+                    continue
+
+                try:
+                    full_file_path = os.path.join(repo_path, f)
+                    with open(full_file_path, "r", encoding="utf-8", errors="ignore") as file:
+                        content = file.read()
+                        if content.strip():
+                            docs.append(Document(
+                                page_content=f"// FILE PATH: {f}\n{content}",
+                                metadata={"source": f}
+                            ))
+                except Exception:
+                    continue
+
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+            split_docs = text_splitter.split_documents(docs)
+            vs = Chroma.from_documents(split_docs, embeddings, persist_directory=db_path)
+
+        sessions[repo_name]["retriever"] = vs.as_retriever(search_kwargs={"k": 5})
+
+    retriever = sessions[repo_name]["retriever"]
+    retrieved_docs = retriever.invoke(contextualized_msg)
+    unique_docs = deduplicate(retrieved_docs)
+
+    context_str = "\n\n".join([d.page_content[:1500] for d in unique_docs])
+
+    default_format_rule = (
+        custom_formatting_instructions 
+        if custom_formatting_instructions 
+        else "- Present technical details in clear, well-structured paragraphs under descriptive section headings."
+    )
+
+    rag_prompt = f"""You are CodeVerse AI, an expert technical software architect analyzing repository '{repo_name}'.
+Answer the developer's question based strictly on the provided context below.
+
+FORMATTING INSTRUCTIONS:
+{default_format_rule}
+
+CONTEXT FROM REPOSITORY:
+{context_str}
+
+QUESTION:
+{contextualized_msg}"""
+
+    return llm.invoke(rag_prompt).content.strip()
