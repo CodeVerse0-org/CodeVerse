@@ -10,21 +10,20 @@ export default function DeveloperNavbar() {
   const [syncingRepoId, setSyncingRepoId] = useState(null);
   const [syncedRepos, setSyncedRepos] = useState({});
 
-  const { notifications, unreadCount, markAllAsRead, setNotifications } = useNotification();
+  // Destructure markAllAsRead from context
+  const { notifications, unreadCount, markAllAsRead } = useNotification();
 
   const handleLogout = () => {
     localStorage.clear();
     navigate("/login");
   };
 
-  // 1. Clears all notifications completely from the UI dropdown
+  // 1. Trigger the context function on button click
   const handleMarkAllRead = async () => {
-    if (markAllAsRead) {
+    try {
       await markAllAsRead();
-    }
-    // Remove all notifications from local state
-    if (setNotifications) {
-      setNotifications([]);
+    } catch (err) {
+      console.error("Failed to clear notifications:", err);
     }
   };
 
@@ -34,15 +33,12 @@ export default function DeveloperNavbar() {
     setSyncingRepoId(repoId);
 
     try {
-      // Optional: Trigger your backend graph sync API here if needed
-      // await axios.post(`/api/repos/${repoId}/sync`);
-
-      // Simulate quick processing delay
+      // Simulate processing delay
       setTimeout(() => {
         setSyncingRepoId(null);
         setSyncedRepos((prev) => ({
           ...prev,
-          [repoId]: "Graph synced successfully! New commits integrated."
+          [repoId]: "Graph synced successfully! New commits integrated.",
         }));
       }, 1000);
     } catch (err) {

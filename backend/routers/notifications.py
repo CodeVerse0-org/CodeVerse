@@ -39,20 +39,20 @@ def get_user_notifications(
         for n in notifications
     ]
 
+# routers/notifications.py
 
-@router.delete("/clear-all")
-def clear_all_notifications(
-    db: Session = Depends(get_db), current_user=Depends(get_current_user)
+# If your frontend sends PUT:
+@router.put("/read-all")
+def mark_all_read(
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user)
 ):
-    """Permanently removes all notifications for the authenticated user."""
-    user_id = (
-        current_user.id if hasattr(current_user, "id") else current_user.get("id")
-    )
-
+    user_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
+    
+    # Delete or mark read according to your feature requirement
     db.query(Notification).filter(Notification.user_id == user_id).delete()
     db.commit()
-
-    return {"status": "success", "message": "All notifications cleared permanently."}
+    return {"status": "success", "message": "All notifications processed."}
 
 
 @router.delete("/{notification_id}")
