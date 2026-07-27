@@ -1,5 +1,3 @@
-
-
 // AdminSignup.jsx
 import React, { useState, useMemo } from "react";
 import {
@@ -75,16 +73,31 @@ const AdminSignup = () => {
   const validate = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Regex allowing standard letters, spaces, hyphens, and apostrophes (Min 2 chars)
+    const nameRegex = /^[A-Za-z\s'-]{2,30}$/;
 
-    if (!firstName.trim()) newErrors.firstName = "First name required";
-    if (!lastName.trim()) newErrors.lastName = "Last name required";
+    // First Name Validation
+    if (!firstName.trim()) {
+      newErrors.firstName = "First name required";
+    } else if (!nameRegex.test(firstName.trim())) {
+      newErrors.firstName = "Only letters allowed (min 2 chars)";
+    }
 
+    // Last Name Validation
+    if (!lastName.trim()) {
+      newErrors.lastName = "Last name required";
+    } else if (!nameRegex.test(lastName.trim())) {
+      newErrors.lastName = "Only letters allowed (min 2 chars)";
+    }
+
+    // Email Validation
     if (!email) {
       newErrors.email = "Email is required";
     } else if (!emailRegex.test(email)) {
       newErrors.email = "Invalid email protocol";
     }
 
+    // Password Validation
     if (!password) {
       newErrors.password = "Security credential required";
     } else if (password.length < 8) {
@@ -121,8 +134,8 @@ const AdminSignup = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.toLowerCase(),
-          first_name: firstName,
-          last_name: lastName,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
           password,
           role: "admin",
         }),
@@ -151,7 +164,6 @@ const AdminSignup = () => {
 
   return (
     <div className="h-screen w-full bg-[#020405] text-gray-200 font-sans overflow-hidden flex flex-col selection:bg-cyan-500/30 relative">
-      {/* Global & custom dark scrollbar styles */}
       <style>{`
         * {
           scrollbar-width: thin;
@@ -173,17 +185,13 @@ const AdminSignup = () => {
         }
       `}</style>
 
-      {/* 1. Integrated Animated Background */}
       {memoizedBG}
 
-      {/* Shared Navbar with full width layout context */}
       <div className="w-full">
         <AuthNavbar />
       </div>
 
-      {/* 2. Main content container sitting above the nodes */}
       <div className="flex w-full h-[calc(100vh-80px)] relative z-10 items-center">
-        {/* Left Side: Branding with Glass Effect */}
         <div className="hidden lg:flex flex-1 flex-col justify-center px-20 relative z-10 border-r border-white/5 bg-black/40 backdrop-blur-sm h-full">
           <div className="mb-8">
             <div className="text-cyan-500 font-black text-xs uppercase tracking-[0.4em] mb-4">
@@ -209,10 +217,8 @@ const AdminSignup = () => {
           </div>
         </div>
 
-        {/* Right Side: Signup Form with Glassmorphism Card */}
         <div className="flex-1 flex items-center justify-center p-6 z-10 overflow-y-auto custom-scrollbar backdrop-blur-[2px] h-full">
           <div className="w-full max-w-md space-y-5 bg-black/40 p-7 rounded-3xl border border-white/5 shadow-2xl backdrop-blur-xl my-auto relative">
-            {/* Back Arrow button linking to login page */}
             <button
               type="button"
               onClick={() => navigate("/login")}
@@ -244,7 +250,11 @@ const AdminSignup = () => {
                   </label>
                   <div className="relative group">
                     <User
-                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${errors.firstName ? "text-red-500" : "text-gray-600 group-focus-within:text-cyan-500"}`}
+                      className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${
+                        errors.firstName
+                          ? "text-red-500"
+                          : "text-gray-600 group-focus-within:text-cyan-500"
+                      }`}
                       size={15}
                     />
                     <input
@@ -255,11 +265,16 @@ const AdminSignup = () => {
                         setFirstName(e.target.value);
                         setErrors({ ...errors, firstName: "" });
                       }}
-                      className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${errors.firstName ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-cyan-500/50"}`}
+                      className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${
+                        errors.firstName
+                          ? "border-red-500/50 focus:border-red-500"
+                          : "border-white/10 focus:border-cyan-500/50"
+                      }`}
                     />
                   </div>
                   <ErrorMsg msg={errors.firstName} />
                 </div>
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-gray-500 ml-1">
                     Last Name
@@ -272,7 +287,11 @@ const AdminSignup = () => {
                       setLastName(e.target.value);
                       setErrors({ ...errors, lastName: "" });
                     }}
-                    className={`w-full bg-white/[0.03] border rounded-xl px-4 py-2.5 text-xs outline-none transition-all text-white ${errors.lastName ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-cyan-500/50"}`}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-4 py-2.5 text-xs outline-none transition-all text-white ${
+                      errors.lastName
+                        ? "border-red-500/50 focus:border-red-500"
+                        : "border-white/10 focus:border-cyan-500/50"
+                    }`}
                   />
                   <ErrorMsg msg={errors.lastName} />
                 </div>
@@ -284,7 +303,11 @@ const AdminSignup = () => {
                 </label>
                 <div className="relative group">
                   <Mail
-                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${errors.email ? "text-red-500" : "text-gray-600 group-focus-within:text-cyan-500"}`}
+                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${
+                      errors.email
+                        ? "text-red-500"
+                        : "text-gray-600 group-focus-within:text-cyan-500"
+                    }`}
                     size={15}
                   />
                   <input
@@ -295,7 +318,11 @@ const AdminSignup = () => {
                       setEmail(e.target.value);
                       setErrors({ ...errors, email: "" });
                     }}
-                    className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${errors.email ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-cyan-500/50"}`}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${
+                      errors.email
+                        ? "border-red-500/50 focus:border-red-500"
+                        : "border-white/10 focus:border-cyan-500/50"
+                    }`}
                   />
                 </div>
                 <ErrorMsg msg={errors.email} />
@@ -307,7 +334,11 @@ const AdminSignup = () => {
                 </label>
                 <div className="relative group">
                   <Lock
-                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${errors.password ? "text-red-500" : "text-gray-600 group-focus-within:text-cyan-500"}`}
+                    className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${
+                      errors.password
+                        ? "text-red-500"
+                        : "text-gray-600 group-focus-within:text-cyan-500"
+                    }`}
                     size={15}
                   />
                   <input
@@ -321,7 +352,11 @@ const AdminSignup = () => {
                         passwordStrength: "",
                       });
                     }}
-                    className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${errors.password ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-cyan-500/50"}`}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-10 py-2.5 text-xs outline-none transition-all text-white ${
+                      errors.password
+                        ? "border-red-500/50 focus:border-red-500"
+                        : "border-white/10 focus:border-cyan-500/50"
+                    }`}
                   />
                   <button
                     type="button"
@@ -339,7 +374,9 @@ const AdminSignup = () => {
                       Password Strength
                     </span>
                     <span
-                      className={`text-[9px] font-black uppercase tracking-widest ${strength === 4 ? "text-cyan-500" : "text-gray-500"}`}
+                      className={`text-[9px] font-black uppercase tracking-widest ${
+                        strength === 4 ? "text-cyan-500" : "text-gray-500"
+                      }`}
                     >
                       {strengthLabels[strength]}
                     </span>
@@ -348,15 +385,18 @@ const AdminSignup = () => {
                     {[...Array(4)].map((_, i) => (
                       <div
                         key={i}
-                        className={`h-1 flex-1 rounded-full transition-all duration-500 ${strength > i ? strengthColor() : "bg-white/5"}`}
+                        className={`h-1 flex-1 rounded-full transition-all duration-500 ${
+                          strength > i ? strengthColor() : "bg-white/5"
+                        }`}
                       />
                     ))}
                   </div>
 
-                  {/* Password Requirement Rules Checklist */}
                   <div className="grid grid-cols-2 gap-2 bg-white/[0.02] border border-white/5 p-2.5 rounded-xl backdrop-blur-sm">
                     <div
-                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasMinLength ? "text-cyan-400" : "text-gray-500"}`}
+                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${
+                        hasMinLength ? "text-cyan-400" : "text-gray-500"
+                      }`}
                     >
                       {hasMinLength ? (
                         <Check size={12} className="text-cyan-400" />
@@ -366,7 +406,9 @@ const AdminSignup = () => {
                       <span>Min 8 Characters</span>
                     </div>
                     <div
-                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasUpperCase ? "text-cyan-400" : "text-gray-500"}`}
+                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${
+                        hasUpperCase ? "text-cyan-400" : "text-gray-500"
+                      }`}
                     >
                       {hasUpperCase ? (
                         <Check size={12} className="text-cyan-400" />
@@ -376,7 +418,9 @@ const AdminSignup = () => {
                       <span>One Uppercase</span>
                     </div>
                     <div
-                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasNumber ? "text-cyan-400" : "text-gray-500"}`}
+                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${
+                        hasNumber ? "text-cyan-400" : "text-gray-500"
+                      }`}
                     >
                       {hasNumber ? (
                         <Check size={12} className="text-cyan-400" />
@@ -386,7 +430,9 @@ const AdminSignup = () => {
                       <span>One Number</span>
                     </div>
                     <div
-                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasSpecialChar ? "text-cyan-400" : "text-gray-500"}`}
+                      className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${
+                        hasSpecialChar ? "text-cyan-400" : "text-gray-500"
+                      }`}
                     >
                       {hasSpecialChar ? (
                         <Check size={12} className="text-cyan-400" />
@@ -411,11 +457,17 @@ const AdminSignup = () => {
                       setConfirmPassword(e.target.value);
                       setErrors({ ...errors, confirmPassword: "" });
                     }}
-                    className={`w-full bg-white/[0.03] border rounded-xl px-4 py-2.5 text-xs outline-none transition-all text-white ${errors.confirmPassword ? "border-red-500/50 focus:border-red-500" : "border-white/10 focus:border-cyan-500/50"}`}
+                    className={`w-full bg-white/[0.03] border rounded-xl px-4 py-2.5 text-xs outline-none transition-all text-white ${
+                      errors.confirmPassword
+                        ? "border-red-500/50 focus:border-red-500"
+                        : "border-white/10 focus:border-cyan-500/50"
+                    }`}
                   />
                   <button
                     type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    onClick={() =>
+                      setShowConfirmPassword(!showConfirmPassword)
+                    }
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition-colors"
                   >
                     {showConfirmPassword ? (
@@ -438,7 +490,9 @@ const AdminSignup = () => {
                       setAgreeTerms(e.target.checked);
                       setErrors({ ...errors, agreeTerms: "" });
                     }}
-                    className={`w-4 h-4 rounded border bg-white/5 checked:bg-cyan-500 transition-all cursor-pointer ${errors.agreeTerms ? "border-red-500" : "border-white/10"}`}
+                    className={`w-4 h-4 rounded border bg-white/5 checked:bg-cyan-500 transition-all cursor-pointer ${
+                      errors.agreeTerms ? "border-red-500" : "border-white/10"
+                    }`}
                   />
                   <label
                     htmlFor="terms"

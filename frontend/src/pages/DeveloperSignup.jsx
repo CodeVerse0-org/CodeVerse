@@ -1,4 +1,3 @@
-
 // DeveloperSignup.jsx
 import React, { useState, useMemo } from "react";
 import {
@@ -72,12 +71,39 @@ const DeveloperSignup = () => {
     }
   };
 
+  // Helper function to validate names against numbers, special symbols, and gibberish repeats
+  const validateName = (name, fieldName) => {
+    const trimmed = name.trim();
+    const nameRegex = /^[a-zA-A-zA-Z\s'-]+$/;
+    const repeatingCharRegex = /(.)\1{2,}/; // Catch 3+ repeating characters like "aaaa"
+
+    if (!trimmed) {
+      return `${fieldName} is required`;
+    }
+    if (trimmed.length < 2) {
+      return `${fieldName} must be at least 2 characters`;
+    }
+    if (trimmed.length > 30) {
+      return `${fieldName} cannot exceed 30 characters`;
+    }
+    if (!nameRegex.test(trimmed)) {
+      return `${fieldName} can only contain letters, spaces, hyphens, and apostrophes`;
+    }
+    if (repeatingCharRegex.test(trimmed)) {
+      return `Please enter a valid ${fieldName.toLowerCase()}`;
+    }
+    return null;
+  };
+
   const validate = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!firstName.trim()) newErrors.firstName = "First name required";
-    if (!lastName.trim()) newErrors.lastName = "Last name required";
+    const firstNameErr = validateName(firstName, "First name");
+    if (firstNameErr) newErrors.firstName = firstNameErr;
+
+    const lastNameErr = validateName(lastName, "Last name");
+    if (lastNameErr) newErrors.lastName = lastNameErr;
 
     if (!email) {
       newErrors.email = "Email is required";
