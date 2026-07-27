@@ -1,3 +1,4 @@
+// components/DeveloperNavbar.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNotification } from "../context/NotificationContext.jsx";
@@ -16,7 +17,7 @@ export default function DeveloperNavbar() {
 
   const handleSyncRepo = (repoId) => {
     setDropdownOpen(false);
-    // Redirect user to graph page with sync parameter
+    // Redirect developer to visualization page with sync trigger
     navigate(`/visualization/graph/${repoId}?sync=true`);
   };
 

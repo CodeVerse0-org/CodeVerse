@@ -2,7 +2,7 @@ import socketio
 from typing import Dict, Set
 
 # ==========================================================
-# Socket.IO Server
+# Socket.IO Server Configuration
 # ==========================================================
 
 sio = socketio.AsyncServer(
@@ -10,6 +10,8 @@ sio = socketio.AsyncServer(
     cors_allowed_origins="*",
     logger=True,
     engineio_logger=True,
+    ping_timeout=60,
+    ping_interval=25,
 )
 
 # Tracks active connections per user

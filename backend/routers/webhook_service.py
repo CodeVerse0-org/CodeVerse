@@ -33,17 +33,19 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Extract Event Details
         repo = payload.get("repository", {})
-        repo_id = repo.get("id")
-        repo_name = repo.get("name")
-        repo_full_name = repo.get("full_name")
+        raw_repo_id = repo.get("id")
+        
+        if not raw_repo_id:
+            return {"status": "missing repository id"}
+            
+        repo_id = int(raw_repo_id)  # Ensure integer type for DB consistency
+        repo_name = repo.get("name", "Unknown Repo")
+        repo_full_name = repo.get("full_name", repo_name)
         repo_owner = repo.get("owner", {})
         owner_id = repo_owner.get("id")
         branch = payload.get("ref", "").replace("refs/heads/", "")
         commit_count = len(payload.get("commits", []))
         pusher = payload.get("pusher", {}).get("name", "A contributor")
-
-        if not repo_id:
-            return {"status": "missing repository id"}
 
         # Find Admin Ownership
         installation = (
@@ -61,7 +63,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
                     id=repo_id,
                     name=repo_name,
                     full_name=repo_full_name,
-                    html_url=repo.get("html_url"),
+                    html_url=repo.get("html_url", f"https://github.com/{repo_full_name}"),
                     private=repo.get("private", False),
                     admin_id=admin_id,
                 )

@@ -1,3 +1,4 @@
+// context/NotificationContext.jsx
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { socket } from "../services/sockets";
 
@@ -5,7 +6,7 @@ const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const API_URL = import.meta.env.VITE_API_URL || "https://codeverse-production-0f5b.up.railway.app";
 
   // Fetch initial notifications from DB
   const fetchNotifications = useCallback(async () => {
@@ -28,12 +29,20 @@ export const NotificationProvider = ({ children }) => {
   useEffect(() => {
     fetchNotifications();
 
-    // Get current logged-in user
-    const userData = JSON.parse(localStorage.getItem("user") || "{}");
-    const userId = userData.id || userData.user_id;
+    // Parse user profile from token or localStorage
+    const token = localStorage.getItem("token");
+    let userId = null;
+
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        userId = payload.user_id || payload.id || payload.sub;
+      } catch (e) {
+        console.error("Failed to parse auth token", e);
+      }
+    }
 
     if (userId) {
-      // Connect developer to their private socket room
       console.log(`🔌 Joining developer socket room: developer_${userId}`);
       socket.emit("join_developer", { userId: userId });
     }
