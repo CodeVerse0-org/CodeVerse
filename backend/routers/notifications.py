@@ -1,20 +1,45 @@
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List
-from db.session import get_db
+
 from db.models import Notification
+from db.session import get_db
 from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/notifications", tags=["Notifications"])
 
 
-@router.get("", response_model=List[dict])
-def get_user_notifications(
-    db: Session = Depends(get_db), current_user=Depends(get_current_user)
-):
-    user_id = (
-        current_user.id if hasattr(current_user, "id") else current_user.get("id")
+class NotificationResponse(BaseModel):
+    id: int
+    repoId: Optional[int] = None
+    title: Optional[str] = None
+    message: Optional[str] = None
+    isRead: bool
+    created_at: Optional[str] = None
+    actionRequired: bool
+
+    class Config:
+        from_attributes = True
+
+
+def _get_user_id(current_user) -> int:
+    if hasattr(current_user, "id"):
+        return current_user.id
+    if isinstance(current_user, dict) and "id" in current_user:
+        return current_user["id"]
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
     )
+
+
+@router.get("", response_model=List[NotificationResponse])
+def get_user_notifications(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    user_id = _get_user_id(current_user)
 
     notifications = (
         db.query(Notification)
@@ -25,34 +50,31 @@ def get_user_notifications(
     )
 
     return [
-        {
-            "id": n.id,
-            "repoId": n.repo_id,
-            "title": n.title,
-            "message": n.message,
-            "isRead": n.is_read,
-            "created_at": (
-                n.created_at.isoformat() if hasattr(n, "created_at") and n.created_at else None
-            ),
-            "actionRequired": n.event_type == "repo_sync_required",
-        }
+        NotificationResponse(
+            id=n.id,
+            repoId=n.repo_id,
+            title=n.title,
+            message=n.message,
+            isRead=n.is_read,
+            created_at=n.created_at.isoformat() if n.created_at else None,
+            actionRequired=(n.event_type == "repo_sync_required"),
+        )
         for n in notifications
     ]
 
-# routers/notifications.py
 
-# If your frontend sends PUT:
 @router.put("/read-all")
 def mark_all_read(
-    db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    user_id = current_user.id if hasattr(current_user, "id") else current_user.get("id")
-    
-    # Delete or mark read according to your feature requirement
-    db.query(Notification).filter(Notification.user_id == user_id).delete()
+    user_id = _get_user_id(current_user)
+
+    db.query(Notification).filter(Notification.user_id == user_id).delete(
+        synchronize_session=False
+    )
     db.commit()
-    return {"status": "success", "message": "All notifications processed."}
+    return {"status": "success", "message": "All notifications cleared."}
 
 
 @router.delete("/{notification_id}")
@@ -61,22 +83,21 @@ def delete_single_notification(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Deletes a single notification record."""
-    user_id = (
-        current_user.id if hasattr(current_user, "id") else current_user.get("id")
-    )
+    user_id = _get_user_id(current_user)
 
     notif = (
         db.query(Notification)
         .filter(
-            Notification.id == notification_id, Notification.user_id == user_id
+            Notification.id == notification_id,
+            Notification.user_id == user_id,
         )
         .first()
     )
 
     if not notif:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
         )
 
     db.delete(notif)
