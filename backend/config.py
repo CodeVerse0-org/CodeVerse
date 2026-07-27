@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     GITHUB_PRIVATE_KEY_PATH: Optional[str] = os.getenv("GITHUB_PRIVATE_KEY_PATH")
     GITHUB_PRIVATE_KEY_TEXT: Optional[str] = os.getenv("GITHUB_PRIVATE_KEY_TEXT")
 
-    FRONTEND_URL: str = "https://code-verse-one.vercel.app"
+    FRONTEND_URL: str = "https://www.codeverse.codes"
 
     @property
     def GITHUB_PRIVATE_KEY(self) -> Optional[str]:

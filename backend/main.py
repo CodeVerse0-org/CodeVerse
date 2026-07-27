@@ -33,6 +33,7 @@ from routers.smtp_test import router as smtp_test_router
 # ALLOWED ORIGINS (CORS Setup)
 # --------------------
 ALLOWED_ORIGINS = [
+    "https://www.codeverse.codes",
     "https://code-verse-one.vercel.app",
     "https://code-verse-git-main-code-verse-s-projects.vercel.app",
     "https://code-verse-do54sfbio-code-verse-s-projects.vercel.app",
