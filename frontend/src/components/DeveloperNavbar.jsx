@@ -8,39 +8,46 @@ export default function DeveloperNavbar() {
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [syncingRepoId, setSyncingRepoId] = useState(null);
-  const [syncSuccessMsg, setSyncSuccessMsg] = useState("");
+  const [syncedRepos, setSyncedRepos] = useState({});
 
-  const { notifications, unreadCount, markAllAsRead, markAsRead } = useNotification();
+  const { notifications, unreadCount, markAllAsRead, setNotifications } = useNotification();
 
   const handleLogout = () => {
     localStorage.clear();
     navigate("/login");
   };
 
+  // 1. Clears all notifications completely from the UI dropdown
+  const handleMarkAllRead = async () => {
+    if (markAllAsRead) {
+      await markAllAsRead();
+    }
+    // Remove all notifications from local state
+    if (setNotifications) {
+      setNotifications([]);
+    }
+  };
+
+  // 2. Syncs graph in-place without navigating away
   const handleSyncRepo = async (notif) => {
     const repoId = notif.repoId;
     setSyncingRepoId(repoId);
 
     try {
-      // Mark notification as read when sync is clicked
-      if (notif.id && markAsRead) {
-        await markAsRead(notif.id);
-      }
+      // Optional: Trigger your backend graph sync API here if needed
+      // await axios.post(`/api/repos/${repoId}/sync`);
 
-      setSyncSuccessMsg("New commits synchronized! Opening updated graph...");
-
-      // Short delay to show user feedback before navigation
+      // Simulate quick processing delay
       setTimeout(() => {
         setSyncingRepoId(null);
-        setSyncSuccessMsg("");
-        setDropdownOpen(false);
-        navigate(`/visualization/graph/${repoId}?sync=true`);
-      }, 1200);
+        setSyncedRepos((prev) => ({
+          ...prev,
+          [repoId]: "Graph synced successfully! New commits integrated."
+        }));
+      }, 1000);
     } catch (err) {
-      console.error("Failed to mark sync notification read:", err);
+      console.error("Failed to sync repository graph:", err);
       setSyncingRepoId(null);
-      setDropdownOpen(false);
-      navigate(`/visualization/graph/${repoId}?sync=true`);
     }
   };
 
@@ -79,9 +86,9 @@ export default function DeveloperNavbar() {
             <div className="absolute right-0 mt-3 w-88 rounded-xl border border-[#21262D] bg-[#161B22] shadow-2xl overflow-hidden z-50">
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#21262D]">
                 <h3 className="font-semibold text-white text-sm">Notifications</h3>
-                {unreadCount > 0 && (
+                {notifications.length > 0 && (
                   <button
-                    onClick={markAllAsRead}
+                    onClick={handleMarkAllRead}
                     className="text-xs text-[#3FB950] hover:underline flex items-center gap-1"
                   >
                     <Check className="w-3 h-3" />
@@ -90,32 +97,20 @@ export default function DeveloperNavbar() {
                 )}
               </div>
 
-              {/* Toast message inside dropdown upon clicking sync */}
-              {syncSuccessMsg && (
-                <div className="bg-[#238636]/20 border-b border-[#238636] p-2.5 text-xs text-[#3FB950] flex items-center gap-2 px-4">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{syncSuccessMsg}</span>
-                </div>
-              )}
-
               <div className="max-h-80 overflow-y-auto divide-y divide-[#21262D]">
                 {notifications.length === 0 ? (
                   <div className="p-6 text-center text-sm text-[#8B949E]">
-                    No notifications available.
+                    No new notifications.
                   </div>
                 ) : (
                   notifications.map((notif) => (
                     <div
                       key={notif.id || Math.random()}
-                      className={`p-4 transition ${
-                        notif.isRead ? "bg-[#161B22] opacity-75" : "bg-[#1F242C]"
-                      }`}
+                      className="p-4 bg-[#1F242C] transition"
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div className="flex items-center gap-1.5">
-                          {!notif.isRead && (
-                            <span className="w-2 h-2 rounded-full bg-[#3FB950] shrink-0" />
-                          )}
+                          <span className="w-2 h-2 rounded-full bg-[#3FB950] shrink-0" />
                           <h4 className="text-xs font-bold text-white">
                             {notif.title}
                           </h4>
@@ -129,25 +124,34 @@ export default function DeveloperNavbar() {
                         {notif.message}
                       </p>
 
-                      {/* Sync Action */}
+                      {/* Sync Graph Action */}
                       {notif.repoId && (
-                        <button
-                          onClick={() => handleSyncRepo(notif)}
-                          disabled={syncingRepoId === notif.repoId}
-                          className="mt-3 w-full py-1.5 px-3 bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#1f5927] text-white text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition"
-                        >
-                          <RefreshCw
-                            size={12}
-                            className={
-                              syncingRepoId === notif.repoId
-                                ? "animate-spin"
-                                : ""
-                            }
-                          />
-                          {syncingRepoId === notif.repoId
-                            ? "Syncing Graph..."
-                            : "Sync Graph Now"}
-                        </button>
+                        <div className="mt-3">
+                          {syncedRepos[notif.repoId] ? (
+                            <div className="p-2 bg-[#238636]/20 border border-[#238636] rounded-md text-[11px] text-[#3FB950] flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>{syncedRepos[notif.repoId]}</span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleSyncRepo(notif)}
+                              disabled={syncingRepoId === notif.repoId}
+                              className="w-full py-1.5 px-3 bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#1f5927] text-white text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition"
+                            >
+                              <RefreshCw
+                                size={12}
+                                className={
+                                  syncingRepoId === notif.repoId
+                                    ? "animate-spin"
+                                    : ""
+                                }
+                              />
+                              {syncingRepoId === notif.repoId
+                                ? "Syncing Graph..."
+                                : "Sync Graph Now"}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from db.session import get_db
@@ -40,28 +40,28 @@ def get_user_notifications(
     ]
 
 
-@router.put("/read-all")
-def mark_all_read(
+@router.delete("/clear-all")
+def clear_all_notifications(
     db: Session = Depends(get_db), current_user=Depends(get_current_user)
 ):
+    """Permanently removes all notifications for the authenticated user."""
     user_id = (
         current_user.id if hasattr(current_user, "id") else current_user.get("id")
     )
 
-    db.query(Notification).filter(
-        Notification.user_id == user_id, Notification.is_read == False
-    ).update({"is_read": True})
-
+    db.query(Notification).filter(Notification.user_id == user_id).delete()
     db.commit()
-    return {"status": "success", "message": "All notifications marked as read."}
+
+    return {"status": "success", "message": "All notifications cleared permanently."}
 
 
-@router.put("/{notification_id}/read")
-def mark_single_read(
+@router.delete("/{notification_id}")
+def delete_single_notification(
     notification_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Deletes a single notification record."""
     user_id = (
         current_user.id if hasattr(current_user, "id") else current_user.get("id")
     )
@@ -75,9 +75,11 @@ def mark_single_read(
     )
 
     if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found"
+        )
 
-    notif.is_read = True
+    db.delete(notif)
     db.commit()
 
-    return {"status": "success", "message": "Notification marked as read."}
+    return {"status": "success", "message": "Notification deleted."}
