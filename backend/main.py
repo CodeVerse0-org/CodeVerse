@@ -1,13 +1,12 @@
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse, ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 import socketio
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-# Load environment variables at the very beginning
 load_dotenv()
 
 # Socket Service
@@ -29,56 +28,28 @@ from routers.audit_logs import router as audit_logs_router
 from routers.notifications import router as notification_router
 from routers.smtp_test import router as smtp_test_router
 
-# --------------------
-# ALLOWED ORIGINS (CORS Setup)
-# --------------------
-ALLOWED_ORIGINS = [
-    "https://www.codeverse.codes",
-    "https://code-verse-one.vercel.app",
-    "https://code-verse-git-main-code-verse-s-projects.vercel.app",
-    "https://code-verse-do54sfbio-code-verse-s-projects.vercel.app",
-    "https://code-verse-jf817vdev-code-verse-s-projects.vercel.app",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
-# Configure Socket.IO allowed origins dynamically
-sio._cors_allowed_origins = "*"
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://www.codeverse.codes").rstrip('/')
 
 # --------------------
-# LIFESPAN (Startup/Shutdown)
+# LIFESPAN
 # --------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Handles Neo4j connection lifecycle."""
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "password")
-    
-    # --- DEBUG GITHUB TOKEN START ---
-    github_token = os.getenv("GITHUB_TOKEN")
-    print("------------------------------------------")
-    if github_token:
-        print(f"✅ GITHUB_TOKEN Loaded: {github_token[:8]}***")
-    else:
-        print("❌ GITHUB_TOKEN NOT FOUND IN .ENV")
-    print("------------------------------------------")
-    # --- DEBUG GITHUB TOKEN END ---
 
     try:
-        # Attach driver to app.state so routers can find it
         app.state.neo4j_driver = GraphDatabase.driver(uri, auth=(user, password))
         app.state.neo4j_driver.verify_connectivity()
         print("✅ Neo4j Connection Established")
     except Exception as e:
         print(f"❌ Failed to connect to Neo4j: {e}")
     
-    yield  # --- App is running ---
+    yield
     
-    # Shutdown logic
     if hasattr(app.state, "neo4j_driver"):
         app.state.neo4j_driver.close()
-        print("Neo4j Driver Connection Closed")
 
 # --------------------
 # FASTAPI APP
@@ -94,7 +65,7 @@ fastapi_app = FastAPI(
 # --------------------
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows GitHub Webhook IPs & external origin testing
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,17 +85,22 @@ fastapi_app.include_router(users_router, prefix="/api/user")
 fastapi_app.include_router(summaries_router, prefix="/api/summaries")
 fastapi_app.include_router(visualization_router)
 fastapi_app.include_router(chatbot_router)
-fastapi_app.include_router(webhook_router)  # Handles /api/github/webhook
+fastapi_app.include_router(webhook_router)
 fastapi_app.include_router(audit_logs_router)
 fastapi_app.include_router(notification_router)
 fastapi_app.include_router(smtp_test_router)
+
+# Safety Catch: Redirect any direct API GET requests for invitation accept back to Frontend
+@fastapi_app.get("/accept-invite/{token}")
+def redirect_to_frontend_invite(token: str):
+    return RedirectResponse(url=f"{FRONTEND_URL}/accept-invite/{token}")
 
 @fastapi_app.get("/")
 def root():
     return {"status": "ok"}
 
 # --------------------
-# SOCKET MOUNT (FINAL)
+# SOCKET MOUNT
 # --------------------
 app = socketio.ASGIApp(
     socketio_server=sio,

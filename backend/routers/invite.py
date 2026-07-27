@@ -14,7 +14,7 @@ from utils.security import decode_access_token
 from services.audit_service import create_audit_log
 from services.socket_service import emit_to_admin
 
-# Environment variable with fallback to production Vercel domain
+# Always target the frontend application domain for acceptance links
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://www.codeverse.codes")
 
 # =========================
@@ -62,8 +62,9 @@ def send_invite(
         db.rollback()
         raise HTTPException(status_code=500, detail="Database save failed")
 
-    # Dynamic secure frontend link
-    link = f"{FRONTEND_URL.rstrip('/')}/accept-invite/{token}"
+    # Clean target URL pointing to Frontend (www.codeverse.codes)
+    base_frontend = FRONTEND_URL.rstrip('/')
+    link = f"{base_frontend}/accept-invite/{token}"
 
     try:
         send_invitation_email(payload.email, link)
@@ -83,10 +84,10 @@ async def accept_invite(
     invite = db.query(Invitation).filter(Invitation.token == token).first()
 
     if not invite:
-        raise HTTPException(status_code=404, detail="Invitation not found")
+        raise HTTPException(status_code=404, detail="Invitation not found or invalid.")
     
     if invite.accepted:
-        return {"message": "Already accepted"}
+        return {"message": "Invitation already accepted."}
 
     user = db.query(User).filter(User.id == current_user_id).first()
     if not user:
@@ -132,7 +133,7 @@ async def accept_invite(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {"message": "Invite accepted and repositories linked"}
+    return {"message": "Invite accepted and repositories linked successfully"}
 
 
 @router.get("/manage")

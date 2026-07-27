@@ -7,7 +7,7 @@ const AcceptInvite = () => {
 
   const [loading, setLoading] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const API_URL = import.meta.env.VITE_API_URL || "https://api.codeverse.codes";
 
   const handleAccept = async () => {
     const jwt = localStorage.getItem("token");
@@ -15,30 +15,26 @@ const AcceptInvite = () => {
     // User not logged in
     if (!jwt) {
       localStorage.setItem("pendingInviteToken", token);
-      alert(
-        "Please login with your Developer account to accept this invitation.",
-      );
+      alert("Please log in with your Developer account to accept this invitation.");
       navigate("/login");
       return;
     }
 
-    // Decode JWT safely
+    // Safe JWT decode
     let payload;
     try {
       payload = JSON.parse(atob(jwt.split(".")[1]));
     } catch (err) {
       localStorage.removeItem("token");
       localStorage.setItem("pendingInviteToken", token);
-      alert("Your session has expired. Please login again.");
+      alert("Your session has expired. Please log in again.");
       navigate("/login");
       return;
     }
 
-    // Admin cannot accept
+    // Role Guard: Admin accounts cannot accept developer invites
     if (payload.role === "admin") {
-      alert(
-        "Please login using a Developer account to accept this invitation.",
-      );
+      alert("Please log in using a Developer account to accept this invitation.");
       navigate("/login");
       return;
     }
@@ -63,9 +59,7 @@ const AcceptInvite = () => {
       }
 
       localStorage.removeItem("pendingInviteToken");
-
       alert("Invitation accepted successfully!");
-
       navigate("/developerDashboard");
     } catch (err) {
       console.error(err);
@@ -102,8 +96,7 @@ const AcceptInvite = () => {
         <h1 className="text-2xl font-bold mb-4">Repository Invitation</h1>
 
         <p className="text-gray-300 mb-8">
-          You have been invited to join a repository on{" "}
-          <strong>CodeVerse</strong>.
+          You have been invited to join a repository on <strong>CodeVerse</strong>.
           <br />
           <br />
           Would you like to accept this invitation?
@@ -113,7 +106,7 @@ const AcceptInvite = () => {
           <button
             onClick={handleReject}
             disabled={loading}
-            className="px-6 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition"
+            className="px-6 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition disabled:opacity-50"
           >
             Reject
           </button>
@@ -121,7 +114,7 @@ const AcceptInvite = () => {
           <button
             onClick={handleAccept}
             disabled={loading}
-            className="px-6 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 transition"
+            className="px-6 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 transition disabled:opacity-50"
           >
             {loading ? "Processing..." : "Accept"}
           </button>
