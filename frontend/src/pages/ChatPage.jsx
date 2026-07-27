@@ -1,11 +1,22 @@
+// ChatbotPage.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Send, Plus, Zap, MessageSquare, Code, Terminal, Cpu, Trash2, ArrowLeftRight } from "lucide-react";
+import {
+  Send,
+  Plus,
+  Zap,
+  MessageSquare,
+  Code,
+  Terminal,
+  Cpu,
+  Trash2,
+  ArrowLeftRight,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import DeveloperNavbar from "../components/DeveloperNavbar";
 
-const ChatPage = () => {
+const ChatbotPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const repoName = searchParams.get("repo") || "";
@@ -46,13 +57,24 @@ const ChatPage = () => {
 
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem("chatSidebarOpen");
+    return saved !== null ? JSON.parse(saved) : true;
+  });
 
   const scrollRef = useRef(null);
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
   const activeChat = chats.find((c) => c.id === activeChatId);
   const messages = activeChat?.messages || [];
+
+  const toggleSidebar = () => {
+    setIsSidebarOpen((prev) => {
+      const newState = !prev;
+      localStorage.setItem("chatSidebarOpen", JSON.stringify(newState));
+      return newState;
+    });
+  };
 
   // ===========================
   // FETCH USER HISTORY
@@ -66,11 +88,11 @@ const ChatPage = () => {
         const res = await fetch(
           `${API_URL}/api/chat/history/${encodeURIComponent(userId)}/${encodeURIComponent(repoName)}`,
           {
-            headers: { 
+            headers: {
               Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json"
+              "Content-Type": "application/json",
             },
-          }
+          },
         );
 
         if (res.status === 401) {
@@ -107,11 +129,15 @@ const ChatPage = () => {
               })
               .filter(Boolean);
 
-            const firstUserMsg = sessionMessages.find((m) => m.role === "user")?.content;
+            const firstUserMsg = sessionMessages.find(
+              (m) => m.role === "user",
+            )?.content;
 
             sessionMap.set(session.sessionId, {
               id: session.sessionId,
-              title: firstUserMsg ? firstUserMsg.slice(0, 25) + "..." : "New Session",
+              title: firstUserMsg
+                ? firstUserMsg.slice(0, 25) + "..."
+                : "New Session",
               messages: sessionMessages,
             });
           });
@@ -166,7 +192,7 @@ const ChatPage = () => {
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
-        }
+        },
       );
 
       if (response.ok) {
@@ -196,8 +222,10 @@ const ChatPage = () => {
   const updateMessages = (newMessages) => {
     setChats((prev) =>
       prev.map((chat) =>
-        chat.id === activeChatId ? { ...chat, messages: [...newMessages] } : chat
-      )
+        chat.id === activeChatId
+          ? { ...chat, messages: [...newMessages] }
+          : chat,
+      ),
     );
   };
 
@@ -216,7 +244,7 @@ const ChatPage = () => {
     if (messages.length === 0) {
       const title = input.slice(0, 25) + "...";
       setChats((prev) =>
-        prev.map((c) => (c.id === activeChatId ? { ...c, title } : c))
+        prev.map((c) => (c.id === activeChatId ? { ...c, title } : c)),
       );
     }
 
@@ -247,7 +275,10 @@ const ChatPage = () => {
 
       const data = await response.json();
       if (response.ok) {
-        updateMessages([...newMessages, { role: "assistant", content: data.content }]);
+        updateMessages([
+          ...newMessages,
+          { role: "assistant", content: data.content },
+        ]);
       } else {
         console.error("Validation / API Error Details:", data);
       }
@@ -264,50 +295,60 @@ const ChatPage = () => {
     }
   }, [messages, isTyping]);
 
-  if (!repoName) return <div className="h-screen bg-[#020405]" />;
+  if (!repoName) return <div className="h-screen bg-black" />;
 
   return (
-    <div className="h-screen flex flex-col bg-[#020408] text-slate-300 overflow-hidden font-sans">
-      <DeveloperNavbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+    <div className="h-screen flex flex-col bg-black text-gray-300 font-sans overflow-hidden selection:bg-cyan-500 selection:text-black">
+      <DeveloperNavbar toggleSidebar={toggleSidebar} />
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* SIDEBAR */}
         <aside
           className={`${
             isSidebarOpen ? "w-72" : "w-0"
-          } transition-all duration-300 ease-in-out bg-[#05070a] border-r border-white/5 flex flex-col`}
+          } transition-all duration-300 ease-in-out bg-black border-r border-white/5 flex flex-col shrink-0`}
         >
-          <div className="p-5 flex flex-col h-full overflow-hidden">
+          <div className="p-4 flex flex-col h-full overflow-hidden w-72">
             <button
               onClick={createNewChat}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-cyan-500 hover:bg-cyan-400 transition-all text-[#020408] rounded-xl text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-cyan-500 hover:text-black transition-all group"
             >
-              <Plus size={16} strokeWidth={3} /> New Chat
+              <Plus
+                size={16}
+                strokeWidth={3}
+                className="group-hover:rotate-90 transition-transform"
+              />
+              <span>New Chat</span>
             </button>
 
-            <div className="mt-8 flex-1 overflow-y-auto space-y-2 custom-scrollbar">
-              <div className="px-2 mb-4">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">History</span>
+            <div className="mt-6 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+              <div className="px-2 mb-3">
+                <span className="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">
+                  Session History
+                </span>
               </div>
               {chats.map((chat) => (
                 <div
                   key={chat.id}
                   onClick={() => handleSelectSession(chat.id)}
-                  className={`group relative w-full text-left px-4 py-3 rounded-xl text-xs transition-all flex items-center gap-3 border cursor-pointer ${
+                  className={`group relative w-full text-left px-3 py-2.5 rounded-xl text-xs transition-all flex items-center gap-3 border cursor-pointer ${
                     chat.id === activeChatId
-                      ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
-                      : "border-transparent text-slate-500 hover:bg-white/5 hover:text-slate-300"
+                      ? "bg-cyan-500/10 border-cyan-500/30 text-white"
+                      : "border-transparent text-gray-400 hover:bg-white/[0.02] hover:text-gray-300"
                   }`}
                 >
-                  <MessageSquare size={14} className="flex-shrink-0" />
-                  <span className="truncate font-medium pr-6">{chat.title}</span>
+                  <MessageSquare
+                    size={14}
+                    className={`flex-shrink-0 ${chat.id === activeChatId ? "text-cyan-400" : "text-gray-600"}`}
+                  />
+                  <span className="truncate font-bold pr-6">{chat.title}</span>
 
                   <button
                     onClick={(e) => handleDeleteSession(e, chat.id)}
-                    className="absolute right-3 opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
+                    className="absolute right-2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-500/10 hover:text-red-400 text-gray-500 transition-all"
                     title="Delete session"
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={12} />
                   </button>
                 </div>
               ))}
@@ -316,36 +357,41 @@ const ChatPage = () => {
         </aside>
 
         {/* MAIN CHAT */}
-        <main className="flex-1 flex flex-col bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-[#0a0f1a] via-[#020408] to-[#020408]">
-          <div className="flex items-center justify-between px-8 py-4 bg-[#05070a]/50 backdrop-blur-md border-b border-white/5">
+        <main className="flex-1 flex flex-col bg-black relative min-w-0">
+          {/* Main Header */}
+          <header className="h-16 border-b border-white/5 flex items-center px-6 bg-black justify-between z-20 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">{repoName}</span>
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+              <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                {repoName}
+              </span>
             </div>
 
             <button
               onClick={() => navigate("/chatbot-selection")}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold uppercase tracking-widest transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 text-[10px] font-bold uppercase tracking-wider transition-all text-gray-400 hover:text-cyan-400"
             >
-              <ArrowLeftRight size={14} className="text-cyan-500" />
+              <ArrowLeftRight size={14} />
               Switch Repo
             </button>
-          </div>
+          </header>
 
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto p-6 md:px-16 lg:px-32 py-10 space-y-8 custom-scrollbar"
+            className="flex-1 overflow-y-auto p-6 md:px-12 lg:px-24 py-8 space-y-6 custom-scrollbar"
           >
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center space-y-4">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-cyan-500 blur-2xl opacity-10 animate-pulse"></div>
-                  <Cpu size={48} className="relative text-cyan-500/40" />
+                <div className="w-16 h-16 bg-cyan-500/10 rounded-2xl flex items-center justify-center border border-cyan-500/20 text-cyan-400 mb-2">
+                  <Cpu size={32} />
                 </div>
-                <div className="text-center space-y-1">
-                  <h3 className="text-slate-100 font-semibold tracking-tight">CodeVerse Intelligence</h3>
-                  <p className="text-xs text-slate-500 font-mono italic underline decoration-cyan-500/30">
-                    Analyzing: {repoName}
+                <div className="text-center space-y-2">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-tight">
+                    CodeVerse Intelligence
+                  </h3>
+                  <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
+                    Ready to analyze{" "}
+                    <span className="text-cyan-400">{repoName}</span>
                   </p>
                 </div>
               </div>
@@ -356,19 +402,29 @@ const ChatPage = () => {
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] lg:max-w-[80%] p-5 rounded-2xl border ${
+                    className={`max-w-[90%] lg:max-w-[85%] p-5 rounded-2xl border ${
                       msg.role === "user"
-                        ? "bg-[#0f172a] border-cyan-500/20 text-slate-100"
-                        : "bg-[#0d1117]/80 backdrop-blur-sm border-white/5 text-slate-300"
+                        ? "bg-cyan-500/10 border-cyan-500/20 text-white rounded-br-sm"
+                        : "bg-white/[0.02] border-white/5 text-gray-300 rounded-bl-sm"
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-2 opacity-40">
-                      {msg.role === "user" ? <Terminal size={12} /> : <Code size={12} />}
-                      <span className="text-[10px] font-mono uppercase tracking-widest">
+                    <div className="flex items-center gap-2 mb-3">
+                      {msg.role === "user" ? (
+                        <Terminal size={12} className="text-cyan-400" />
+                      ) : (
+                        <Code size={12} className="text-gray-500" />
+                      )}
+                      <span
+                        className={`text-[10px] font-mono uppercase font-bold tracking-widest ${
+                          msg.role === "user"
+                            ? "text-cyan-400"
+                            : "text-gray-500"
+                        }`}
+                      >
                         {msg.role === "user" ? "Developer" : "CodeVerse AI"}
                       </span>
                     </div>
-                    <div className="markdown-container text-sm leading-relaxed">
+                    <div className="markdown-container text-xs leading-relaxed font-sans">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content}
                       </ReactMarkdown>
@@ -379,31 +435,46 @@ const ChatPage = () => {
             )}
 
             {isTyping && (
-              <div className="flex items-center gap-3 text-cyan-500 animate-pulse">
-                <div className="flex gap-1">
-                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce"></div>
-                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                  <div className="w-1 h-1 bg-cyan-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+              <div className="flex items-center gap-3 text-cyan-500 py-4">
+                <div className="flex gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce"></div>
+                  <div
+                    className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  ></div>
+                  <div
+                    className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.4s" }}
+                  ></div>
                 </div>
-                <span className="text-[10px] font-mono uppercase tracking-[0.3em]">Synthesizing response</span>
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold">
+                  Synthesizing response
+                </span>
               </div>
             )}
           </div>
 
-          <div className="p-6 md:px-16 lg:px-32 bg-gradient-to-t from-[#020408] to-transparent">
+          <div className="p-4 md:px-12 lg:px-24 bg-black shrink-0 pb-6 border-t border-white/5">
             <form
               onSubmit={handleSendMessage}
-              className="relative flex items-center gap-3 bg-[#0d1117] border border-white/10 p-2 rounded-2xl focus-within:border-cyan-500/50 transition-all shadow-2xl"
+              className="relative flex items-center gap-3 bg-black border border-white/10 p-1.5 rounded-xl focus-within:border-cyan-500/50 transition-colors shadow-2xl"
             >
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={`Query repository...`}
-                className="flex-1 p-3 bg-transparent border-none outline-none text-sm text-slate-200 placeholder:text-slate-600"
+                placeholder="Query repository..."
+                className="flex-1 px-4 py-3 bg-transparent border-none outline-none text-xs text-white placeholder-gray-600 font-mono focus:ring-0"
+                disabled={isTyping}
               />
 
-              <button className="p-3 bg-cyan-500 hover:bg-cyan-400 text-[#020408] rounded-xl transition-all active:scale-95 shadow-lg shadow-cyan-500/10">
-                <Send size={18} />
+              <button
+                disabled={!input.trim() || isTyping}
+                className="p-3 bg-cyan-500/10 hover:bg-cyan-500 text-cyan-400 hover:text-black border border-cyan-500/20 rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed group mr-1"
+              >
+                <Send
+                  size={16}
+                  className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
+                />
               </button>
             </form>
           </div>
@@ -415,23 +486,37 @@ const ChatPage = () => {
           __html: `
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.3); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.2); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(34, 211, 238, 0.5); }
         
         .markdown-container pre { 
-          background: #010409 !important; 
-          padding: 1.25rem; 
-          border-radius: 12px; 
-          border: 1px solid rgba(255,255,255,0.05);
+          background: rgba(0, 0, 0, 0.5) !important; 
+          padding: 1rem; 
+          border-radius: 0.75rem; 
+          border: 1px solid rgba(255, 255, 255, 0.05);
           margin: 1rem 0;
           overflow-x: auto;
         }
         .markdown-container code { 
-          font-family: 'JetBrains Mono', monospace; 
+          font-family: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', monospace; 
           color: #22d3ee;
-          font-size: 0.85rem;
+          font-size: 0.75rem;
+          background: rgba(34, 211, 238, 0.05);
+          padding: 0.125rem 0.25rem;
+          border-radius: 0.25rem;
+        }
+        .markdown-container pre code {
+          background: transparent;
+          padding: 0;
+          color: #e2e8f0;
         }
         .markdown-container p { margin-bottom: 0.75rem; }
+        .markdown-container p:last-child { margin-bottom: 0; }
+        .markdown-container ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .markdown-container ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        .markdown-container li { margin-bottom: 0.25rem; }
+        .markdown-container a { color: #22d3ee; text-decoration: underline; text-underline-offset: 2px; }
+        .markdown-container strong { color: #fff; }
       `,
         }}
       />
@@ -439,4 +524,4 @@ const ChatPage = () => {
   );
 };
 
-export default ChatPage;
+export default ChatbotPage;

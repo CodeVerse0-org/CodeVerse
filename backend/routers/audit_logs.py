@@ -1,22 +1,29 @@
-# routers/audit_logs.py
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from db.connection import get_db
 
+# Import your existing user dependency instead of manual jwt decoding
+from routers.auth import get_current_user  # Adjust import path if auth is located elsewhere (e.g., utils.auth)
+
 router = APIRouter()
 
 @router.get("/api/audit-logs")
-def get_all_audit_logs():
+def get_all_audit_logs(current_user: dict = Depends(get_current_user)):
     """
-    Fetches historical entry updates from the system audit log registry table
-    with fully resolved human-readable individual identity details.
+    Fetches audit logs visible ONLY to the logged-in admin:
+    1. Actions performed directly by or for this admin.
+    2. Actions performed by developers assigned to repositories managed by this admin.
     """
+    admin_id = current_user.get("user_id") or current_user.get("id")
+    if not admin_id:
+        raise HTTPException(status_code=401, detail="User identification missing from token.")
+
     conn = get_db()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT 
+                SELECT DISTINCT
                     a.id, 
                     a.admin_id, 
                     a.actor_id, 
@@ -31,8 +38,17 @@ def get_all_audit_logs():
                     u.role
                 FROM audit_logs a
                 LEFT JOIN users u ON a.actor_id = u.id
+                WHERE 
+                    a.admin_id = %s 
+                    OR a.actor_id = %s
+                    OR a.actor_id IN (
+                        SELECT ur.user_id 
+                        FROM user_repositories ur 
+                        WHERE ur.admin_id = %s
+                    )
                 ORDER BY a.created_at DESC
-                """
+                """,
+                (admin_id, admin_id, admin_id)
             )
             rows = cur.fetchall()
             
@@ -42,11 +58,12 @@ def get_all_audit_logs():
                 last_name = row[10]
                 role = row[11]
                 
-                # Format clear human-readable actor name
                 if first_name and last_name:
-                    actor_name = f"{first_name} {last_name} ({role.capitalize()})"
+                    role_str = f" ({role.capitalize()})" if role else ""
+                    actor_name = f"{first_name} {last_name}{role_str}"
                 elif first_name:
-                    actor_name = f"{first_name} ({role.capitalize()})"
+                    role_str = f" ({role.capitalize()})" if role else ""
+                    actor_name = f"{first_name}{role_str}"
                 else:
                     actor_name = "System Level"
 

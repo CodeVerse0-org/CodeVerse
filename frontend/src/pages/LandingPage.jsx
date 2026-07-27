@@ -1,5 +1,6 @@
+// LandingPage.jsx
 import React from "react";
-import Header from "../components/Header";
+import AuthNavbar from "../components/AuthNavbar";
 import HeroSection from "../components/HeroSection";
 import KeyFeatures from "../components/KeyFeatures";
 import HowItWorks from "../components/HowItWorks";
@@ -11,21 +12,23 @@ const LandingPage = () => (
   <div className="min-h-screen bg-[#020405] text-gray-200 font-sans selection:bg-cyan-500 selection:text-black relative">
     {/* Bouncing blurred nodes background */}
     <GraphBackground />
-    
+
     <div className="relative z-10">
-      <Header />
-      
+      <div className="w-full">
+        <AuthNavbar />
+      </div>
+
       <main>
         <HeroSection />
-        
+
         <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-        
+
         <KeyFeatures />
-        
+
         <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-        
+
         <HowItWorks />
-        
+
         <CallToAction />
       </main>
 

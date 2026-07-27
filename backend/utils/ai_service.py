@@ -1,6 +1,7 @@
 import os
 import re
-from typing import List, Dict, Optional, Set
+import time
+from typing import List, Dict, Optional, Set, Tuple
 
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -19,9 +20,14 @@ memory = {}
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 ALLOWED_EXTS = (".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".html", ".css")
-IGNORE_DIRS = {".git", "node_modules", "dist", "build", "__pycache__", "venv", ".next"}
+IGNORE_DIRS = {".git", "node_modules", "dist", "build", "__pycache__", "venv", ".next", ".idea", ".vscode"}
 
-MAX_CONTEXT = 9000
+IGNORE_FILES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "composer.lock",
+    "bundle.js", "main.js.map", "tsconfig.json", "package.json"
+}
+
+MAX_CONTEXT = 6000
 
 # ================= UTIL ================= #
 
@@ -29,18 +35,101 @@ def clean_path(path: str, repo_path: str):
     return os.path.relpath(path, repo_path).replace("\\", "/")
 
 def is_valid_file(file):
-    return file.endswith(ALLOWED_EXTS) and not file.startswith(".")
+    filename = os.path.basename(file)
+    if filename in IGNORE_FILES:
+        return False
+    return file.endswith(ALLOWED_EXTS) and not filename.startswith(".")
 
 def should_skip(path):
-    return any(p in path.split(os.sep) for p in IGNORE_DIRS)
+    parts = path.split(os.sep)
+    return any(p in parts for p in IGNORE_DIRS)
 
 def format_files(files):
     files = sorted(files)
     return "\n".join([f"- {f.split('/')[-1]}" for f in files]) if files else "No files found."
 
-# ================= 🔥 NEW: STRUCTURED FRONTEND + BACKEND VIEW ================= #
+# ================= CODE DETECTION UTILS ================= #
 
-def format_files_with_headings(inventory):
+def contains_code_patterns(text: str) -> bool:
+    """Detects if a raw string contains code syntax or programming constructs."""
+    code_indicators = [
+        r"\b(import|export|const|let|var|function|async|await|return|class|require|if|else|try|catch)\b",
+        r"// FILE:",
+        r"=>",
+        r"[\{\}\(\)\[\];=]{3,}",
+        r"router\.(get|post|put|delete|use)\("
+    ]
+    return any(re.search(pattern, text) for pattern in code_indicators)
+
+def extract_pasted_code_and_instruction(msg: str) -> Tuple[Optional[str], str]:
+    """
+    Separates user instructions (e.g., 'explain this code in paragraph') 
+    from pasted source code blocks.
+    """
+    code_blocks = re.findall(r"```(?:\w+)?\n?(.*?)```", msg, re.DOTALL)
+    if code_blocks:
+        code_content = "\n\n".join(code_blocks).strip()
+        instruction = re.sub(r"```(?:\w+)?\n?(.*?)```", "", msg, flags=re.DOTALL).strip()
+        return code_content, instruction if instruction else "Explain this code."
+
+    if contains_code_patterns(msg):
+        leading_match = re.match(r"^([^\n\{};=]+(?:\?|\:)?)\n", msg)
+        if leading_match and any(kw in leading_match.group(1).lower() for kw in ["explain", "summarize", "describe", "what"]):
+            instruction = leading_match.group(1).strip()
+            code_content = msg[leading_match.end():].strip()
+            return code_content, instruction
+
+        explain_match = re.search(r"\(?explain.*?\)?$", msg, re.IGNORECASE)
+        if explain_match:
+            instruction = explain_match.group(0).strip("() ")
+            code_content = msg[:explain_match.start()].strip()
+            return code_content, instruction
+        
+        return msg, "Explain this code."
+
+    return None, msg
+
+# ================= REFORMULATE QUERY WITH HISTORY ================= #
+
+def reformulate_query_with_history(msg: str, history: Optional[List[Dict[str, str]]], llm) -> str:
+    msg_clean = msg.lower().strip()
+    greetings = {"hi", "hello", "hey", "hello there", "hey hi", "good morning", "good evening"}
+    
+    if not history or msg_clean in greetings:
+        return msg
+
+    formatted_history = ""
+    for turn in history[-4:]:
+        role = turn.get("role", "user")
+        content = turn.get("content", "")
+        formatted_history += f"{role.capitalize()}: {content}\n"
+
+    prompt = f"""
+Given the following conversation history and a new user question, rephrase the new question into a standalone, clear technical prompt.
+
+CRITICAL INSTRUCTIONS:
+- Preserve specific terms in the new question (e.g., 'frontend', 'backend', 'config', 'name of files', 'list', 'explain repo', 'with code').
+- DO NOT convert requests to explain/summarize the repo into a file list or file count query.
+
+CONVERSATION HISTORY:
+{formatted_history}
+
+NEW USER QUESTION:
+{msg}
+
+STANDALONE REPHRASED QUERY:
+"""
+    try:
+        standalone = llm.invoke(prompt).content.strip()
+        print(f"🔄 [REFORMULATE] Original: '{msg}' -> Standalone: '{standalone}'")
+        return standalone if standalone else msg
+    except Exception as e:
+        print(f"⚠️ [REFORMULATE ERROR] {e}")
+        return msg
+
+# ================= STRUCTURED FRONTEND + BACKEND VIEW ================= #
+
+def format_files_with_headings(inventory, repo_name):
     frontend = sorted(inventory["frontend"])
     backend = sorted(inventory["backend"])
 
@@ -48,14 +137,14 @@ def format_files_with_headings(inventory):
         return "\n".join([f"- {f.split('/')[-1]}" for f in files]) if files else "No files found."
 
     return f"""
-📁 FRONTEND FILES
+📁 FRONTEND FILES FOR PROJECT '{repo_name}' ({len(frontend)}):
 {format_list(frontend)}
 
-📁 BACKEND FILES
+📁 BACKEND FILES FOR PROJECT '{repo_name}' ({len(backend)}):
 {format_list(backend)}
 """
 
-# ================= 🔥 FILE HANDLING (NEW) ================= #
+# ================= FILE HANDLING ================= #
 
 def detect_file_request(msg: str):
     msg = msg.lower()
@@ -81,7 +170,7 @@ def get_exact_file(repo_path, filename):
                     return None, None
     return None, None
 
-# ================= 🔥 RESPONSE MODE DETECTION ================= #
+# ================= RESPONSE MODE DETECTION ================= #
 
 def detect_response_mode(msg: str):
     msg = msg.lower()
@@ -100,7 +189,7 @@ def detect_response_mode(msg: str):
 
     return "default"
 
-# ================= 🔥 NEW: CHUNKING ================= #
+# ================= CHUNKING ================= #
 
 def chunk_code(code: str, chunk_size: int = 1200):
     chunks = []
@@ -108,47 +197,37 @@ def chunk_code(code: str, chunk_size: int = 1200):
         chunks.append(code[i:i + chunk_size])
     return chunks
 
-# ================= 🔥 INVALID QUERY FILTER ================= #
+# ================= INVALID QUERY FILTER ================= #
 
 def is_invalid_query(msg: str):
-
     msg_clean = msg.strip().lower()
 
-    # Gibberish/Short detection
-    if len(msg_clean) < 3:
+    if len(msg_clean) < 2:
         return True
 
-    # Repeated characters (aaaaa)
+    if contains_code_patterns(msg):
+        return False
+
     if re.search(r"(.)\1{5,}", msg_clean):
         return True
 
-    # Random character strings/nonsense
     alpha_num_ratio = sum(c.isalnum() for c in msg_clean) / max(len(msg_clean), 1)
-    if alpha_num_ratio < 0.5:
+    if alpha_num_ratio < 0.3:
         return True
 
-    # No vowels usually means gibberish in English
-    if not re.search(r"[aeiouy]", msg_clean) and len(msg_clean) > 5:
-        return True
-
-    words = msg_clean.split()
-    if len(set(words)) == 1 and len(words) > 1:
-        return True
-
-    # Personal/Senseless/Off-topic filter
     personal_keywords = [
         "my name", "your name", "who are you",
         "how are you", "age", "job", "salary",
         "love", "relationship", "weather", "lunch", "dinner",
-        "marry me", "favorite color", "address", "phone number"
+        "marry me", "favorite color", "address", "phone number",
     ]
 
     if any(p in msg_clean for p in personal_keywords):
         return True
 
-    return False
+    return False 
 
-# ================= 🔥 SAFE SESSION HANDLING ================= #
+# ================= SAFE SESSION HANDLING ================= #
 
 def get_llm(repo_name):
     if repo_name not in sessions or sessions[repo_name].get("llm") is None:
@@ -160,9 +239,6 @@ def get_llm(repo_name):
             sessions[repo_name] = {"llm": llm, "retriever": None}
 
     return sessions[repo_name]["llm"]
-
-def get_retriever(repo_name):
-    return sessions.get(repo_name, {}).get("retriever")
 
 # ================= REPO ANALYSIS ================= #
 
@@ -190,13 +266,13 @@ def build_inventory(repo_path):
 
             low = rel.lower()
 
-            if any(x in low for x in ["frontend", "client", "ui", "components", "src/app", "src/pages"]):
+            if any(x in low for x in ["frontend", "client", "ui", "components", "src/app", "src/pages", "views", "public"]):
                 inventory["frontend"].add(rel)
 
-            elif any(x in low for x in ["backend", "server", "api", "routes", "controllers", "models"]):
+            elif any(x in low for x in ["backend", "server", "api", "routes", "controllers", "models", "services"]):
                 inventory["backend"].add(rel)
 
-            elif any(x in low for x in ["config", ".json", ".env", "settings"]):
+            elif any(x in low for x in ["config", "settings"]):
                 inventory["config"].add(rel)
 
     return inventory
@@ -212,41 +288,48 @@ def build_architecture_map(inventory):
 # ================= INTENT ================= #
 
 def detect_intent(msg: str):
-    msg = msg.lower().strip()
+    msg_raw = msg.lower().strip()
+    msg_compact = re.sub(r'[^a-z0-9]', '', msg_raw)
 
-    # Greetings
-    if msg in ["hi", "hello", "hey", "hello there", "hey hi"]:
+    if msg_raw in ["hi", "hello", "hey", "hello there", "hey hi", "good morning", "good evening"]:
         return "greeting"
 
-    # Precise File Count Logic
-    if any(x in msg for x in ["count", "number of", "how many"]):
-        if "frontend" in msg and "backend" in msg:
-            return "frontend_backend_all" # Show totals with headings
-        if "frontend" in msg:
+    # 1. SUMMARY INTENT
+    summary_keywords = ["summary", "overview", "explanation", "explain"]
+    target_keywords = ["codebase", "repo", "repository", "project", "code", "repositoy", "repositry", "repositty", "codebas", "rpsort"]
+    
+    has_explain = any(k in msg_raw or k in msg_compact for k in summary_keywords)
+    has_target = any(t in msg_raw or t in msg_compact for t in target_keywords)
+
+    if (has_explain and has_target) or "notfilename" in msg_compact or "notfilenames" in msg_compact:
+        return "summary"
+
+    # 2. LISTING INTENT
+    list_triggers = ["list", "show", "give", "names", "name", "tell me the files", "what are the files", "which files"]
+    if any(x in msg_raw for x in list_triggers):
+        if "frontend" in msg_raw and "backend" in msg_raw:
+            return "frontend_backend_all"
+        if "frontend" in msg_raw or "client" in msg_raw or "ui" in msg_raw:
+            return "frontend_files"
+        if "backend" in msg_raw or "server" in msg_raw or "api" in msg_raw:
+            return "backend_files"
+        return "all_files"
+
+    # 3. COUNTING INTENT
+    count_triggers = ["count", "number of", "how many", "file count", "total files", "how many files"]
+    if any(x in msg_raw for x in count_triggers):
+        if "frontend" in msg_raw and "backend" in msg_raw:
+            return "frontend_backend_all"
+        if "frontend" in msg_raw or "client" in msg_raw or "ui" in msg_raw:
             return "frontend_count"
-        if "backend" in msg:
+        if "backend" in msg_raw or "server" in msg_raw or "api" in msg_raw:
             return "backend_count"
         return "file_count"
 
-    # List File Names Logic
-    if any(x in msg for x in ["list", "show", "give", "names", "tell me the files"]):
-        if "frontend" in msg and "backend" in msg:
-            return "frontend_backend_all"
-        if "frontend" in msg:
-            return "frontend_files"
-        if "backend" in msg:
-            return "backend_files"
-        if "all" in msg or "names" in msg:
-            return "all_files"
-
-    if "summary" in msg or "overview" in msg:
-        if any(x in msg for x in ["repo", "repository", "project"]):
-            return "summary"
-
-    if "where is" in msg or "used in" in msg:
+    if "where is" in msg_raw or "used in" in msg_raw:
         return "where_used"
 
-    if any(x in msg for x in ["what is", "explain", "concept", "how", "why"]):
+    if any(x in msg_raw for x in ["what is", "explain", "concept", "how", "why"]):
         return "concept"
 
     return "rag"
@@ -266,217 +349,317 @@ def deduplicate(docs):
             seen.add(d.page_content)
     return out
 
-# ================= SUMMARY ================= #
+# ================= ENHANCED CODEBASE SUMMARY GENERATOR ================= #
 
-def generate_summary(repo_path, inventory, llm, arch_map):
-    sample = list(inventory["all"])[:6]
+def generate_summary(repo_path, inventory, llm, arch_map, user_request=""):
+    print(f"⚙️ [AI SERVICE] Generating architectural summary for repo path: {repo_path}")
+    include_code_snippets = any(kw in user_request.lower() for kw in ["with code", "code snippets", "snippets", "show code", "include code"])
+
+    key_keywords = ["app", "index", "server", "main", "route", "controller", "model", "context", "auth", "socket", "service", "api", "page"]
+    priority_files = []
+    
+    # Priority on active code files, eliminating non-source config/lock files
+    for f in sorted(inventory["all"]):
+        filename = os.path.basename(f)
+        if filename in IGNORE_FILES or f.endswith((".json", ".md")):
+            continue
+        if any(k in f.lower() for k in key_keywords):
+            priority_files.append(f)
+
+    if len(priority_files) < 8:
+        for f in sorted(inventory["all"]):
+            filename = os.path.basename(f)
+            if f not in priority_files and filename not in IGNORE_FILES and not f.endswith((".json", ".md")):
+                priority_files.append(f)
+
+    sample = priority_files[:12]
+    print(f"📦 [AI SERVICE] Selected {len(sample)} key source files for summary evaluation: {sample}")
 
     snippets = []
     for f in sample:
         try:
             with open(os.path.join(repo_path, f), "r", encoding="utf-8", errors="ignore") as file:
-                snippets.append(f"FILE: {f}\n{file.read()[:400]}")
-        except:
+                snippets.append(f"FILE HEADER: {f}\n{file.read()[:900]}")
+        except Exception as err:
+            print(f"⚠️ [FILE READ ERROR] Couldn't read {f}: {err}")
             continue
 
+    code_section_prompt = """
+Code Snippets
+Include 3 to 5 key representative code snippets extracted from primary application files (e.g., Controllers, Routes, Services, Components) alongside a concise explanation for each snippet describing its responsibility in the architecture.
+""" if include_code_snippets else ""
+
     prompt = f"""
-You are a senior software engineer.
+You are an expert software architect analyzing a custom application repository.
+Your task is to analyze the source code and generate a high-level, clear technical system breakdown of the repository.
 
-TASK:
-Write a clear, human-readable SUMMARY of the repository based on the provided data.
+DO NOT explain package managers, package-lock metadata, or node_modules dependencies.
+Focus strictly on custom application logic, routes, domain features, and core workflows.
 
-CRITICAL RULES:
-- Output MUST be a single coherent paragraph
-- Do NOT use headings, bullet points, or numbered lists
-- Only break into sections if the user explicitly asks for them
-- Do not hallucinate missing architecture details
-- Keep it concise but informative
+STRICTLY USE THE FOLLOWING FORMAT:
 
-DATA:
+System Overview
+[Concise summary of what the custom application does, tech stack used for frontend/backend, and core domain purpose.]
+
+Frontend Architecture
+[Framework used, project layout, main UI components, client routing, and state management.]
+
+Backend Architecture
+[Server environment, framework/API structures, database models, authentication mechanisms, services, and integrations.]
+
+Key Features
+- [Feature 1]
+- [Feature 2]
+- [Feature 3]
+
+System Flow
+Here is a high-level overview of the core application flow:
+- [Feature Name]: [Step 1] -> [Step 2] -> [Step 3]
+
+{code_section_prompt}
+
+SOURCE CODE CONTEXT SAMPLE:
 {snippets}
-
-ARCHITECTURE STATS:
-{arch_map}
 """
-
-    return llm.invoke(prompt).content.strip()
+    print("🚀 [AI SERVICE] Sending context to ChatGroq LLM...")
+    response = llm.invoke(prompt).content.strip()
+    print("✅ [AI SERVICE] Architectural summary generated successfully.")
+    return response
 
 # ================= MAIN ================= #
 
 async def process_chat_message(repo_name, message, history=None, installation_id=None):
-
+    start_time = time.time()
     msg = message.strip()
+    print(f"\n==================== [CHAT PROCESS START] ====================")
+    print(f"📥 [REQUEST] Repo: '{repo_name}' | Query: '{msg}'")
 
-    # Rule 1: Refuse Gibberish or Personal Questions
+    # 1. DIRECT CODE PASTE CHECK
+    pasted_code, instruction = extract_pasted_code_and_instruction(msg)
+    llm = get_llm(repo_name)
+
+    if pasted_code and len(pasted_code) > 20:
+        print("⚡ [INTENT] Direct Code Paste detected.")
+        prompt = f"""
+You are a senior software engineer analyzing code provided directly by a developer.
+
+DEVELOPER INSTRUCTION:
+{instruction}
+
+CODE SNIPPET:
+{pasted_code[:5000]}
+
+Please provide a detailed, clear response addressing the developer's instructions precisely.
+"""
+        res = llm.invoke(prompt).content.strip()
+        print(f"🏁 [CHAT PROCESS END] Elapsed: {round(time.time() - start_time, 2)}s")
+        return res
+
+    # 2. INTENT DETECTION & VALIDATION
+    raw_intent = detect_intent(msg)
+    print(f"🎯 [INTENT] Raw detected intent: '{raw_intent}'")
+
+    if raw_intent == "greeting":
+        return f"Hello! How can I assist you with repository '{repo_name}' today?"
+
     if is_invalid_query(msg):
-        return "❌ I am a technical assistant for repository analysis. Please ask a clear, project-related question and avoid gibberish or personal inquiries."
+        print("❌ [VALIDATION] Query marked as invalid non-technical message.")
+        return "❌ I am a technical assistant for repository analysis. Please ask a clear, project-related question."
 
     repo_folder = repo_name.replace("/", "_")
     repo_path = f"./temp_repos/{repo_folder}"
     db_path = f"./db/{repo_folder}"
 
+    print(f"📂 [PATHS] Repo Path: '{repo_path}' | Vector DB Path: '{db_path}'")
+
     if not os.path.exists(repo_path):
-        return "Repository not found."
+        print(f"❌ [PATH ERROR] Local repository target '{repo_path}' does not exist.")
+        return f"Repository '{repo_name}' was not found."
 
     inventory = build_inventory(repo_path)
     arch_map = build_architecture_map(inventory)
+    print(f"📊 [INVENTORY] Total Source Files: {arch_map['total_files']} | Frontend: {arch_map['frontend_files']} | Backend: {arch_map['backend_files']}")
 
-    llm = get_llm(repo_name)
-    retriever = get_retriever(repo_name)
+    direct_intents = {
+        "summary", "frontend_count", "backend_count", "file_count", 
+        "frontend_backend_all", "frontend_files", "backend_files", "all_files"
+    }
+    
+    if raw_intent in direct_intents:
+        intent = raw_intent
+    else:
+        contextualized_msg = reformulate_query_with_history(msg, history, llm)
+        intent = detect_intent(contextualized_msg)
+        print(f"🎯 [INTENT] Post-history intent: '{intent}'")
 
-    # ================= FILE HANDLING ================= #
+    # ================= REPO FILE HANDLING ================= #
 
     is_file_query = detect_file_request(msg)
     filename = extract_filename(msg)
 
     if is_file_query and filename:
+        print(f"📄 [FILE DIRECT] Requesting specific file: '{filename}'")
         file_content, file_path = get_exact_file(repo_path, filename)
 
         if not file_content:
-            return f"File '{filename}' not found in repository."
+            return f"File '{filename}' not found in project '{repo_name}'."
 
         mode = detect_response_mode(msg)
 
         if mode == "only_code":
-            return file_content[:15000]
+            return file_content[:8000]
 
         if mode == "full_code":
-            return f"""📄 FILE: {file_path}\n\n{file_content[:15000]}"""
+            return f"📄 FILE: {file_path}\n\n{file_content[:8000]}"
 
         if mode == "explain_only":
-            chunks = chunk_code(file_content[:6000])
+            chunks = chunk_code(file_content[:4000])
             explanations = []
 
             for i, chunk in enumerate(chunks):
                 prompt = f"""
-You are a senior software engineer. Explain this code chunk clearly in a paragraph. DO NOT include any code.
+You are a senior software engineer. Explain this code chunk clearly. Do NOT output code snippets unless necessary.
 
 CHUNK:
 {chunk}
+
+DEVELOPER REQUEST:
+{msg}
 """
                 res = llm.invoke(prompt).content.strip()
                 explanations.append(f"Chunk {i+1}:\n{res}")
 
-            return f"""📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n{chr(10).join(explanations)}"""
+            return f"📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n" + "\n\n".join(explanations)
 
-        if mode == "explain":
-            chunks = chunk_code(file_content[:6000])
-            explanations = []
-
-            for i, chunk in enumerate(chunks):
-                prompt = f"""
-You are a senior software engineer. Explain this code chunk clearly. You MAY include very small snippets if needed.
-
-CHUNK:
-{chunk}
-"""
-                res = llm.invoke(prompt).content.strip()
-                explanations.append(f"Chunk {i+1}:\n{res}")
-
-            return f"""📄 FILE: {file_path}\n\n🧠 DETAILED EXPLANATION:\n{chr(10).join(explanations)}"""
-
-        trimmed_code = file_content[:6000]
-        prompt = f"""You are a senior software engineer. Explain the code clearly.\n\nCODE:\n{trimmed_code}"""
+        trimmed_code = file_content[:4000]
+        prompt = f"""You are a senior software engineer. Explain the following code succinctly without repeating entire source code blocks.\n\nDEVELOPER REQUEST:\n{msg}\n\nCODE:\n{trimmed_code}"""
         explanation = llm.invoke(prompt).content.strip()
 
-        return f"""📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n{explanation}"""
+        return f"📄 FILE: {file_path}\n\n🧠 EXPLANATION:\n{explanation}"
 
-    # ================= REST OF YOUR LOGIC (UNCHANGED) ================= #
+    # ================= VECTOR DATABASE & RETRIEVAL INIT ================= #
 
     if repo_name not in sessions or sessions[repo_name].get("retriever") is None:
-        if os.path.exists(db_path):
+        if os.path.exists(db_path) and len(os.listdir(db_path)) > 0:
+            print(f"💾 [VECTOR DB] Loading existing Chroma database from '{db_path}'")
             vs = Chroma(persist_directory=db_path, embedding_function=embeddings)
         else:
+            print(f"🔨 [VECTOR DB] Creating new Chroma vector index at '{db_path}'...")
             docs = []
 
             for f in inventory["all"]:
+                filename = os.path.basename(f)
+                # Ensure package managers and lock files are strictly ignored
+                if filename in IGNORE_FILES or f.endswith((".json", ".lock")):
+                    continue
+
                 try:
-                    with open(os.path.join(repo_path, f), "r", encoding="utf-8", errors="ignore") as file:
+                    full_file_path = os.path.join(repo_path, f)
+                    with open(full_file_path, "r", encoding="utf-8", errors="ignore") as file:
                         content = file.read()
                         if content.strip():
                             docs.append(Document(
                                 page_content=f"FILE: {f}\n{content}",
                                 metadata={"source": f}
                             ))
-                except:
+                except Exception as file_err:
+                    print(f"⚠️ [INDEXING SKIP] Could not index file '{f}': {file_err}")
                     continue
 
+            print(f"📄 [VECTOR DB] Total documents filtered for vector embedding: {len(docs)}")
             splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=150)
+            split_docs = splitter.split_documents(docs)
+            print(f"🧩 [VECTOR DB] Total chunked documents: {len(split_docs)}")
+            
             vs = Chroma.from_documents(
-                splitter.split_documents(docs),
-                embeddings,
+                documents=split_docs,
+                embedding=embeddings,
                 persist_directory=db_path
             )
 
-        sessions[repo_name]["retriever"] = vs.as_retriever(search_kwargs={"k": 6})
-        retriever = sessions[repo_name]["retriever"]
+        sessions[repo_name]["retriever"] = vs.as_retriever(search_kwargs={"k": 5})
 
-    intent = detect_intent(msg)
+    retriever = sessions[repo_name]["retriever"]
 
-    # Rule 2: Greetings
-    if intent == "greeting":
-        return "Hello, how can I assist you?"
-
-    # Rule 5: File counting and specific details
+    # Direct Metadata Answers
     if intent == "file_count":
-        return f"{arch_map['total_files']}"
+        return f"The total number of valid source files for repository '{repo_name}' is {arch_map['total_files']}."
 
     if intent == "frontend_count":
-        return f"{arch_map['frontend_files']}"
+        return f"The number of frontend files for repository '{repo_name}' is {arch_map['frontend_files']}."
 
     if intent == "backend_count":
-        return f"{arch_map['backend_files']}"
+        return f"The number of backend files for repository '{repo_name}' is {arch_map['backend_files']}."
 
     if intent == "frontend_backend_all":
-        # Returns names with Headings and counts
-        return format_files_with_headings(inventory)
+        return format_files_with_headings(inventory, repo_name)
 
     if intent == "all_files":
-        return format_files(inventory["all"])
+        return f"📁 FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["all"])
 
     if intent == "frontend_files":
-        return format_files(inventory["frontend"])
+        return f"📁 FRONTEND FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["frontend"])
 
     if intent == "backend_files":
-        return format_files(inventory["backend"])
+        return f"📁 BACKEND FILES IN REPOSITORY '{repo_name}':\n" + format_files(inventory["backend"])
 
     if intent == "summary":
-        return generate_summary(repo_path, inventory, llm, arch_map)
+        ans = generate_summary(repo_path, inventory, llm, arch_map, user_request=msg)
+        print(f"🏁 [CHAT PROCESS END] Elapsed: {round(time.time() - start_time, 2)}s")
+        return ans
 
     if intent == "concept":
+        print("🔎 [RAG] Performing concept retrieval search...")
         docs = deduplicate(retriever.invoke(msg))
         context = "\n\n".join(d.page_content for d in docs)[:MAX_CONTEXT]
 
         if not context:
-            return "Not found in repository."
+            return f"No relevant concept context found in repository '{repo_name}'."
 
-        prompt = f"""Explain using repo context only.\n\nCONTEXT:\n{context}\n\nQUESTION:\n{msg}"""
-        return llm.invoke(prompt).content.strip()
+        prompt = f"""
+You are a senior software engineer assistant analyzing custom application repository '{repo_name}'.
+
+INSTRUCTIONS:
+- Answer concisely using custom application source code logic from context.
+- Avoid outputting long code listings unless requested.
+- Focus strictly on custom source logic and architectural patterns.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{msg}
+"""
+        ans = llm.invoke(prompt).content.strip()
+        print(f"🏁 [CHAT PROCESS END] Elapsed: {round(time.time() - start_time, 2)}s")
+        return ans
 
     if intent == "where_used":
+        print("🔎 [SEARCH] Executing keyword and vector search for usage context...")
         kw = keyword_search(msg, inventory)
         docs = retriever.invoke(msg)
         results = list(set(kw + [d.metadata.get("source", "") for d in docs]))
         results = [r for r in results if r]
-        return "\n".join(results) if results else "Not found in repository."
+        return "\n".join(results) if results else f"Not found in repository '{repo_name}'."
 
-    # Rule 4: Answer only according to user requirements
+    # Default RAG Processing
+    print("🔎 [RAG] Executing general semantic context retrieval...")
     docs = deduplicate(retriever.invoke(msg))
     kw = keyword_search(msg, inventory)
 
-    context = "\n\n".join([d.page_content for d in docs] + kw[:5])[:MAX_CONTEXT]
+    context = "\n\n".join([d.page_content for d in docs] + kw[:3])[:MAX_CONTEXT]
 
     if not context:
-        return "Not found in repository."
+        return f"Information not found in repository '{repo_name}'."
 
     prompt = f"""
-You are a senior software engineer assistant.
+You are a senior software engineer assistant working on repository '{repo_name}'.
 
 RULES:
-- Answer ONLY according to the developer's requirements provided in the message.
-- Use repository context only.
-- Do not provide information outside of what is requested.
-- Do not hallucinate.
+- Respond accurately to the developer's message based on custom application source code.
+- Do NOT include unnecessary or excessively long code blocks in your answers unless requested.
+- Ignore package-lock files, dependencies lists, and third-party node module metadata.
+- Focus exclusively on custom application source code logic.
 
 CONTEXT:
 {context}
@@ -485,4 +668,6 @@ DEVELOPER REQUEST:
 {msg}
 """
 
-    return llm.invoke(prompt).content.strip()
+    ans = llm.invoke(prompt).content.strip()
+    print(f"🏁 [CHAT PROCESS END] Elapsed: {round(time.time() - start_time, 2)}s")
+    return ans

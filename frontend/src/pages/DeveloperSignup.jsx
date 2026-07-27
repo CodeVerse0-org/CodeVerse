@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Eye, EyeOff, User, Mail, Lock, ShieldCheck, ChevronRight, Loader2, Code2 } from "lucide-react";
+import { Eye, EyeOff, User, Mail, Lock, ShieldCheck, ChevronRight, Loader2, Code2, Check, X } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import GraphBackground from "../components/GraphBackground"; // Import the shared background
 
@@ -22,13 +22,19 @@ const DeveloperSignup = () => {
   // Stabilize the background so it doesn't reset on keystrokes
   const memoizedBG = useMemo(() => <GraphBackground />, []);
 
+  // Password requirement validation checks
+  const hasMinLength = password.length >= 8;
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecialChar = /[\W]/.test(password);
+
   const getPasswordStrength = (pass) => {
     if (!pass) return 0;
     let strength = 0;
-    if (pass.length >= 8) strength++;
-    if (/[A-Z]/.test(pass)) strength++;
-    if (/[0-9]/.test(pass)) strength++;
-    if (/[\W]/.test(pass)) strength++;
+    if (hasMinLength) strength++;
+    if (hasUpperCase) strength++;
+    if (hasNumber) strength++;
+    if (hasSpecialChar) strength++;
     return strength;
   };
 
@@ -233,10 +239,30 @@ const DeveloperSignup = () => {
                       {strengthLabels[strength]}
                     </span>
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 mb-3">
                     {[...Array(4)].map((_, i) => (
                       <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-500 ${strength > i ? strengthColor() : "bg-white/5"}`} />
                     ))}
+                  </div>
+
+                  {/* Password Requirement Rules Checklist */}
+                  <div className="grid grid-cols-2 gap-2 bg-white/[0.02] border border-white/5 p-3 rounded-xl backdrop-blur-sm">
+                    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasMinLength ? 'text-cyan-400' : 'text-gray-500'}`}>
+                      {hasMinLength ? <Check size={12} className="text-cyan-400" /> : <X size={12} className="text-gray-600" />}
+                      <span>Min 8 Characters</span>
+                    </div>
+                    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasUpperCase ? 'text-cyan-400' : 'text-gray-500'}`}>
+                      {hasUpperCase ? <Check size={12} className="text-cyan-400" /> : <X size={12} className="text-gray-600" />}
+                      <span>One Uppercase</span>
+                    </div>
+                    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasNumber ? 'text-cyan-400' : 'text-gray-500'}`}>
+                      {hasNumber ? <Check size={12} className="text-cyan-400" /> : <X size={12} className="text-gray-600" />}
+                      <span>One Number</span>
+                    </div>
+                    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase transition-colors ${hasSpecialChar ? 'text-cyan-400' : 'text-gray-500'}`}>
+                      {hasSpecialChar ? <Check size={12} className="text-cyan-400" /> : <X size={12} className="text-gray-600" />}
+                      <span>One Special Char</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -277,7 +303,7 @@ const DeveloperSignup = () => {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-white/5 disabled:text-gray-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-cyan-900/20 flex items-center justify-center gap-3"
+                  className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-white/5 disabled:text-gray-600 text-white py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl shadow-cyan-900/20 flex items-center justify-center gap-3 cursor-pointer"
                 >
                   {submitting ? (
                     <><Loader2 className="animate-spin" size={16} /> Initializing...</>

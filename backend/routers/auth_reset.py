@@ -1,7 +1,5 @@
-# backend/routers/auth_reset.py
-
 from fastapi import APIRouter, HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 import bcrypt
 
@@ -10,48 +8,51 @@ from utils.email_utils import send_reset_password_email
 
 router = APIRouter()
 
-# ------------------------------
+# ----------------------------------------------------------
 # SEND RESET OTP
-# ------------------------------
+# ----------------------------------------------------------
 @router.post("/reset-password")
 def send_reset_otp(payload: dict):
     email = payload.get("email")
     if not email:
         raise HTTPException(status_code=400, detail="Email required")
 
-    otp = str(random.randint(100000, 999999))
-    expires = datetime.utcnow() + timedelta(minutes=10)
-
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT id FROM users WHERE email=%s
-    """, (email.lower(),))
-    user = cur.fetchone()
+    try:
+        cur.execute("""
+            SELECT id FROM users WHERE email=%s
+        """, (email.lower(),))
+        user = cur.fetchone()
 
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
-    cur.execute("""
-        UPDATE users
-        SET reset_otp=%s,
-            reset_otp_expires=%s
-        WHERE email=%s
-    """, (otp, expires, email.lower()))
+        otp = str(random.randint(100000, 999999))
+        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur.execute("""
+            UPDATE users
+            SET reset_otp=%s,
+                reset_otp_expires=%s
+            WHERE email=%s
+        """, (otp, expires, email.lower()))
 
-    send_reset_password_email(email, otp)
+        conn.commit()
 
-    return {"message": "Reset OTP sent to email"}
+        send_reset_password_email(email, otp)
+
+        return {"message": "Reset OTP sent to email"}
+
+    finally:
+        cur.close()
+        conn.close()
 
 
-# ------------------------------
+# ----------------------------------------------------------
 # VERIFY OTP & RESET PASSWORD
-# ------------------------------
+# ----------------------------------------------------------
 @router.post("/reset-password/confirm")
 def confirm_reset(payload: dict):
     email = payload.get("email")
@@ -64,35 +65,39 @@ def confirm_reset(payload: dict):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT id, reset_otp, reset_otp_expires
-        FROM users WHERE email=%s
-    """, (email.lower(),))
+    try:
+        cur.execute("""
+            SELECT id, reset_otp, reset_otp_expires
+            FROM users WHERE email=%s
+        """, (email.lower(),))
 
-    user = cur.fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        user = cur.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
-    user_id, saved_otp, expires = user
+        user_id, saved_otp, expires = user
 
-    if saved_otp != otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
+        if not saved_otp or saved_otp != otp:
+            raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if datetime.utcnow() > expires:
-        raise HTTPException(status_code=400, detail="OTP expired")
+        now = datetime.now(timezone.utc) if expires and expires.tzinfo else datetime.utcnow()
+        if expires and now > expires:
+            raise HTTPException(status_code=400, detail="OTP expired")
 
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-    cur.execute("""
-        UPDATE users
-        SET password_hash=%s,
-            reset_otp=NULL,
-            reset_otp_expires=NULL
-        WHERE id=%s
-    """, (hashed, user_id))
+        cur.execute("""
+            UPDATE users
+            SET password_hash=%s,
+                reset_otp=NULL,
+                reset_otp_expires=NULL
+            WHERE id=%s
+        """, (hashed, user_id))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
 
-    return {"message": "Password reset successful"}
+        return {"message": "Password reset successful"}
+
+    finally:
+        cur.close()
+        conn.close()

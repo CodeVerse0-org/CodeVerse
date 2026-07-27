@@ -15,7 +15,7 @@ from services.audit_service import create_audit_log
 from services.socket_service import emit_to_admin
 
 # Environment variable with fallback to production Vercel domain
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://code-verse-git-main-code-verse-s-projects.vercel.app")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://code-verse-one.vercel.app")
 
 # =========================
 # INIT

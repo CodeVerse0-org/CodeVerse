@@ -1,11 +1,19 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { 
-  Github, ShieldCheck, Users, Loader2, Trash2, 
-  LayoutDashboard, ExternalLink, AlertCircle 
+import {
+  Github,
+  ShieldCheck,
+  Users,
+  Loader2,
+  Trash2,
+  ExternalLink,
+  AlertCircle,
+  Cpu,
+  Activity,
+  ArrowUpRight,
 } from "lucide-react";
-import Sidebar from "../components/Sidebar"; 
-import DeveloperNavbar from "../components/AdminNavbar";
+import Sidebar from "../components/Sidebar";
+import AdminNavbar from "../components/AdminNavbar";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -13,8 +21,8 @@ const AdminDashboard = () => {
   const [isGithubConnected, setIsGithubConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ totalUsers: 0, activeRepos: 0 });
+  const [systemHealth, setSystemHealth] = useState("DEGRADED");
 
-  // Sidebar persistence
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
@@ -30,9 +38,6 @@ const AdminDashboard = () => {
     });
   };
 
-  /**
-   * Fetches all core dashboard data: Profile, GitHub status, and User stats
-   */
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     const token = localStorage.getItem("token");
@@ -41,42 +46,47 @@ const AdminDashboard = () => {
       return;
     }
 
-    const headers = { 
+    const headers = {
       Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     };
 
     try {
-      // 1. Fetch Admin Profile
       const profileRes = await fetch(`${API_URL}/auth/me`, { headers });
       if (profileRes.ok) {
         const userData = await profileRes.json();
-        setAdmin({ 
-          ...userData, 
-          name: `${userData.first_name} ${userData.last_name}` 
+        setAdmin({
+          ...userData,
+          name:
+            `${userData.first_name || ""} ${userData.last_name || ""}`.trim() ||
+            userData.email,
         });
       }
 
-      // 2. Fetch GitHub Connection Status
-      const statusRes = await fetch(`${API_URL}/api/github/status`, { headers });
+      const statusRes = await fetch(`${API_URL}/api/github/status`, {
+        headers,
+      });
       if (statusRes.ok) {
         const statusData = await statusRes.json();
-        // Sets boolean true/false based on backend 'github_connected' flag
-        setIsGithubConnected(!!statusData.connected);
+        const connected = !!statusData.connected;
+        setIsGithubConnected(connected);
+        // Is "degraded" correct? Yes, if GitHub isn't connected, core synchronization pipelines are impaired.
+        setSystemHealth(connected ? "SECURE" : "DEGRADED");
+      } else {
+        setSystemHealth("DEGRADED");
       }
-      
-      // 3. Fetch Organization Stats (Total invited developers)
+
       const usersRes = await fetch(`${API_URL}/api/invite/manage`, { headers });
       if (usersRes.ok) {
         const usersData = await usersRes.json();
-        setStats(prev => ({
+        setStats((prev) => ({
           ...prev,
           totalUsers: usersData.length,
         }));
       }
-
     } catch (err) {
-      console.error("Dashboard Synchronization Error:", err);
+      console.error("Telemetry Sync Error:", err);
+      setSystemHealth("OFFLINE");
     } finally {
       setLoading(false);
     }
@@ -86,9 +96,6 @@ const AdminDashboard = () => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  /**
-   * Redirects user to GitHub App installation flow
-   */
   const handleConnectGitHub = async () => {
     const token = localStorage.getItem("token");
     try {
@@ -102,12 +109,9 @@ const AdminDashboard = () => {
     }
   };
 
-  /**
-   * Uninstalls GitHub App and cleans up DB records
-   */
   const handleDisconnectGitHub = async () => {
     const confirmDisconnect = window.confirm(
-      "Warning: This will uninstall the GitHub App and remove access to all repositories. Continue?"
+      "Warning: This will terminate GitHub integration hooks. Continue?",
     );
     if (!confirmDisconnect) return;
 
@@ -120,11 +124,9 @@ const AdminDashboard = () => {
       });
 
       if (res.ok) {
-        // RESET STATE: This immediately shows the "Link GitHub" button again
         setIsGithubConnected(false);
-        await fetchDashboardData(); 
-      } else {
-        alert("Disconnection failed. The app may have already been uninstalled on GitHub.");
+        setSystemHealth("DEGRADED");
+        await fetchDashboardData();
       }
     } catch (err) {
       console.error("Disconnect error:", err);
@@ -133,111 +135,188 @@ const AdminDashboard = () => {
     }
   };
 
+  // Tooltip descriptions for why status reads SECURE or DEGRADED
+  const getStatusReason = () => {
+    if (systemHealth === "SECURE") {
+      return "Reason: JWT authentication token is valid and GitHub application webhooks are active.";
+    } else if (systemHealth === "DEGRADED") {
+      return "Reason: GitHub application integration is unlinked or organization hooks are paused.";
+    }
+    return "Reason: Unable to reach backend services.";
+  };
+
   return (
     <div className="h-screen flex flex-col bg-[#020405] text-gray-200 font-sans overflow-hidden">
-      <DeveloperNavbar toggleSidebar={toggleSidebar} />
+      {/* Admin Navbar */}
+      <AdminNavbar toggleSidebar={toggleSidebar} />
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar maintains connection state for navigation visibility */}
-        <Sidebar admin={admin} isConnected={isGithubConnected} isOpen={isSidebarOpen} />
+      <div className="flex-1 flex overflow-hidden relative">
+        <Sidebar
+          admin={admin}
+          isConnected={isGithubConnected}
+          isOpen={isSidebarOpen}
+          loading={loading}
+        />
 
-        <div className="flex-1 flex flex-col relative overflow-hidden">
-          <main className="flex-1 p-10 flex flex-col overflow-y-auto bg-[#010203] custom-scrollbar">
+        <div className="flex-1 flex flex-col relative overflow-hidden bg-[#010203]">
+          <main className="flex-1 p-6 md:p-8 flex flex-col overflow-y-auto custom-scrollbar">
             {loading ? (
-              <div className="flex-1 flex flex-col items-center justify-center space-y-4">
-                <Loader2 className="animate-spin text-cyan-500" size={40} />
-                <span className="text-xs uppercase tracking-[0.2em] text-gray-500 font-bold">
-                  Initializing Systems...
+              <div className="flex-1 flex flex-col items-center justify-center space-y-3">
+                <Loader2 className="animate-spin text-cyan-500" size={36} />
+                <span className="text-[11px] uppercase tracking-[0.25em] text-cyan-500/80 font-mono font-bold">
+                  Establishing Secure Handshake...
                 </span>
               </div>
             ) : (
-              <div className="max-w-6xl w-full mx-auto">
-                {/* Header Section */}
-                <div className="flex justify-between items-start mb-12">
-                  <div className="text-left">
-                    <h1 className="text-4xl font-black text-white flex items-center gap-4 tracking-tighter">
-                      SYSTEM OVERVIEW <ShieldCheck className="text-cyan-500" size={32} />
+              <div className="max-w-6xl w-full mx-auto space-y-6">
+                {/* Header Banner */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white/[0.02] border border-white/5 p-6 rounded-2xl backdrop-blur-md shadow-xl">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-cyan-400">
+                        Root Access Control
+                      </span>
+                    </div>
+                    <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-3">
+                      ADMIN DASHBOARD{" "}
+                      <ShieldCheck className="text-cyan-500" size={24} />
                     </h1>
-                    <p className="text-sm text-gray-500 mt-2 font-medium">
-                      Manage organization access and GitHub integration protocols.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Dashboard Cards Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-                  
-                  {/* GitHub Integration Card */}
-                  <div className="bg-[#05070a] border border-white/5 p-8 rounded-3xl backdrop-blur-md hover:border-cyan-500/30 transition-all duration-300">
-                    <div className="flex justify-between items-start mb-6">
-                      <div>
-                        <p className="text-gray-500 text-[10px] uppercase tracking-widest font-black mb-1">Infrastructure</p>
-                        <h3 className="text-2xl font-bold text-white flex items-center gap-2">
-                          GitHub App <ExternalLink size={14} className="text-gray-600" />
-                        </h3>
-                      </div>
-                      <div className={`p-2 rounded-lg ${isGithubConnected ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                         <Github className={isGithubConnected ? "text-green-500" : "text-red-500"} size={20} />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 mb-8">
-                      <span className={`h-2 w-2 rounded-full ${isGithubConnected ? "bg-green-500 shadow-[0_0_10px_#22c55e]" : "bg-red-500 animate-pulse"}`}></span>
-                      <span className={`text-xs font-mono font-black tracking-widest ${isGithubConnected ? "text-green-400" : "text-red-400"}`}>
-                        {isGithubConnected ? "SYSTEMS_ACTIVE" : "CONNECTION_REQUIRED"}
-                      </span>
-                    </div>
-
-                    {/* Toggle Button: Shows Connect or Disconnect based on current state */}
-                    {isGithubConnected ? (
-                      <button 
-                        onClick={handleDisconnectGitHub}
-                        className="w-full py-4 bg-red-950/20 hover:bg-red-900/30 border border-red-500/20 rounded-2xl text-xs font-black text-red-400 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter"
-                      >
-                        <Trash2 size={16} /> Terminate Connection
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={handleConnectGitHub}
-                        className="w-full py-4 bg-cyan-950/20 hover:bg-cyan-900/40 border border-cyan-500/20 rounded-2xl text-xs font-black text-cyan-400 transition-all flex items-center justify-center gap-2 uppercase tracking-tighter"
-                      >
-                        <Github size={16} /> Authorize GitHub Org
-                      </button>
-                    )}
                   </div>
 
-                  {/* Total Members Card */}
-                  <div 
-                    className="bg-[#05070a] border border-white/5 p-8 rounded-3xl cursor-pointer hover:border-cyan-500/30 transition-all duration-300"
-                    onClick={() => navigate("/users")}
+                  {/* Status Indicator with Hover Tooltip explaining the state */}
+                  <div
+                    title={getStatusReason()}
+                    className="flex items-center gap-3 px-3.5 py-2 rounded-xl bg-black/60 border border-white/10 text-xs font-mono cursor-help group relative"
                   >
-                    <div className="flex justify-between items-start mb-6">
-                      <div>
-                        <p className="text-gray-500 text-[10px] uppercase tracking-widest font-black mb-1">Access Control</p>
-                        <h3 className="text-2xl font-bold text-white flex items-center gap-2">Total Developers</h3>
+                    <Activity
+                      size={14}
+                      className="text-cyan-400 animate-pulse"
+                    />
+                    <span className="text-gray-400">STATUS:</span>
+                    <strong
+                      className={
+                        systemHealth === "SECURE"
+                          ? "text-green-400 tracking-wider"
+                          : "text-amber-400 tracking-wider"
+                      }
+                    >
+                      {systemHealth}
+                    </strong>
+
+                    {/* Hover Popup Reason Box */}
+                    <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-[#0a0f14] border border-white/10 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 text-[10px] text-gray-300 font-sans normal-case leading-relaxed">
+                      <span className="font-bold text-cyan-400 block mb-1 uppercase tracking-wider">
+                        Reason
+                      </span>
+                      {getStatusReason()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grid Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* GitHub Integration */}
+                  <div className="bg-[#05070a] border border-white/5 hover:border-cyan-500/30 p-6 rounded-2xl transition-all duration-300 flex flex-col justify-between group shadow-lg">
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            GitHub App Integration{" "}
+                            <ExternalLink
+                              size={14}
+                              className="text-gray-500 group-hover:text-cyan-400 transition-colors"
+                            />
+                          </h3>
+                        </div>
+                        <div
+                          className={`p-2.5 rounded-xl border ${isGithubConnected ? "bg-green-500/10 border-green-500/20 text-green-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}
+                        >
+                          <Github size={18} />
+                        </div>
                       </div>
-                      <div className="p-2 bg-cyan-500/10 rounded-lg">
-                         <Users className="text-cyan-500" size={20} />
+
+                      <div className="flex items-center gap-2.5 mb-6 px-3.5 py-2.5 rounded-xl bg-white/[0.02] border border-white/5">
+                        <span
+                          className={`h-2 w-2 rounded-full ${isGithubConnected ? "bg-green-400 shadow-[0_0_8px_#22c55e]" : "bg-red-500 animate-pulse"}`}
+                        />
+                        <span
+                          className={`text-[11px] font-mono font-bold tracking-wider ${isGithubConnected ? "text-green-400" : "text-red-400"}`}
+                        >
+                          {isGithubConnected
+                            ? "WEBHOOK_ACTIVE & SYNCED"
+                            : "UNAUTHORIZED ORG"}
+                        </span>
                       </div>
                     </div>
-                    
-                    <div className="flex items-baseline gap-4 mt-4">
-                      <span className="text-6xl font-black text-white tracking-tighter">
-                        {stats.totalUsers.toString().padStart(2, '0')}
-                      </span>
-                      <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">
-                        Verified Identities
-                      </span>
+
+                    <div>
+                      {isGithubConnected ? (
+                        <button
+                          onClick={handleDisconnectGitHub}
+                          className="w-full py-3 bg-red-950/20 hover:bg-red-900/30 border border-red-500/20 rounded-xl text-[11px] font-bold text-red-400 transition-all flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer"
+                        >
+                          <Trash2 size={14} /> Terminate Integration
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleConnectGitHub}
+                          className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/30 rounded-xl text-[11px] font-black text-white transition-all flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer shadow-lg shadow-cyan-950/40"
+                        >
+                          <Github size={14} /> Authorize Organization
+                        </button>
+                      )}
                     </div>
                   </div>
 
+                  {/* Users Overview Card */}
+                  <div
+                    className="bg-[#05070a] border border-white/5 hover:border-cyan-500/30 p-6 rounded-2xl transition-all duration-300 flex flex-col justify-between cursor-pointer group shadow-lg"
+                    onClick={() => navigate("/Users")}
+                  >
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <p className="text-[10px] uppercase font-mono tracking-widest text-gray-500 mb-0.5">
+                            Access Matrix
+                          </p>
+                          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            Verified Developers{" "}
+                            <ArrowUpRight
+                              size={14}
+                              className="text-gray-500 group-hover:text-cyan-400 transition-colors"
+                            />
+                          </h3>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                          <Users size={18} />
+                        </div>
+                      </div>
+
+                      <div className="flex items-baseline gap-3 mb-6 px-3.5 py-2.5 rounded-xl bg-white/[0.02] border border-white/5">
+                        <span className="text-3xl font-black text-white font-mono tracking-tighter">
+                          {stats.totalUsers.toString().padStart(2, "0")}
+                        </span>
+                        <span className="text-[11px] text-gray-400 font-mono font-medium uppercase tracking-wider">
+                          Active Credentials
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="w-full py-2.5 bg-white/[0.03] group-hover:bg-cyan-500/10 border border-white/5 group-hover:border-cyan-500/20 rounded-xl text-[11px] font-bold text-gray-400 group-hover:text-cyan-400 transition-all flex items-center justify-center gap-2 uppercase tracking-wider">
+                      Inspect Directory <Cpu size={14} />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Optional Status Alert if disconnected */}
                 {!isGithubConnected && (
-                  <div className="mt-6 p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-2xl flex items-center gap-4 text-yellow-500/80">
-                    <AlertCircle size={20} />
-                    <p className="text-xs font-medium">Repository sync is currently paused. Link your GitHub Organization to resume analysis.</p>
+                  <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center gap-3 text-amber-400 text-xs shadow-inner">
+                    <AlertCircle size={18} className="shrink-0" />
+                    <p>
+                      Live repository indexing is currently paused. Authorize
+                      your GitHub organization to reactivate live socket
+                      pipelines.
+                    </p>
                   </div>
                 )}
               </div>
@@ -245,13 +324,12 @@ const AdminDashboard = () => {
           </main>
         </div>
       </div>
-      
-      {/* Scrollbar Styling */}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #111; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #22c55e; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(6,182,212,0.4); }
       `}</style>
     </div>
   );

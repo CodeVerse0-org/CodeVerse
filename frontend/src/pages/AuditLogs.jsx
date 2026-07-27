@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Shield,
   Search,
@@ -20,14 +20,20 @@ const AuditLogs = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [actionFilter, setActionFilter] = useState("ALL");
 
-  const fetchAuditLogs = async () => {
+  const rawApiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+  const API_URL = rawApiUrl.includes("localhost")
+    ? rawApiUrl
+    : rawApiUrl.replace(/^http:\/\//i, "https://");
+
+  const fetchAuditLogs = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:8000/api/audit-logs", {
+      const response = await fetch(`${API_URL}/api/audit-logs`, {
         headers: {
           Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
       });
 
@@ -43,17 +49,17 @@ const AuditLogs = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_URL]);
 
   useEffect(() => {
     fetchAuditLogs();
-  }, []);
+  }, [fetchAuditLogs]);
 
   // Filter logic pipeline
   const filteredLogs = logs.filter((log) => {
-    const matchesSearch = (log.repository_name || "")
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      (log.repository_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.actor_name || "").toLowerCase().includes(searchTerm.toLowerCase());
     const matchesAction = actionFilter === "ALL" || log.action === actionFilter;
     return matchesSearch && matchesAction;
   });
@@ -67,7 +73,7 @@ const AuditLogs = () => {
   // Action badge color styling map
   const getActionStyle = (action) => {
     const act = (action || "").toUpperCase();
-    if (act.includes("GENERATE") || act.includes("CREATE")) {
+    if (act.includes("GENERATE") || act.includes("CREATE") || act.includes("INVITE")) {
       return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
     }
     if (act.includes("UPDATE") || act.includes("PUSH")) {
@@ -100,8 +106,7 @@ const AuditLogs = () => {
             System Audit Logs
           </h1>
           <p className="text-gray-500 text-xs mt-1 leading-relaxed">
-            Real-time tracking of repository syncs, notification emissions, and
-            graph regeneration runs.
+            Real-time tracking of assigned repository syncs, developer activities, and graph runs.
           </p>
         </div>
 
@@ -122,7 +127,7 @@ const AuditLogs = () => {
             <Terminal size={80} />
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">
-            Total Logs Count
+            Total Workspace Logs
           </p>
           <p className="text-3xl font-black text-white font-mono">
             {logs.length}
@@ -144,11 +149,11 @@ const AuditLogs = () => {
             <Shield size={80} />
           </div>
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-500 mb-1">
-            Monitoring Status
+            Monitoring Scope
           </p>
           <p className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5 mt-3">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-            Active Capture Online
+            Assigned Developers Only
           </p>
         </div>
       </div>
@@ -162,7 +167,7 @@ const AuditLogs = () => {
           />
           <input
             type="text"
-            placeholder="Search logs by repository name..."
+            placeholder="Search logs by repo or developer name..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-11 pr-4 py-3 bg-black/40 border border-white/5 rounded-xl text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500/50 transition-colors font-medium"
@@ -208,7 +213,7 @@ const AuditLogs = () => {
             </p>
             <button
               onClick={fetchAuditLogs}
-              className="mt-6 px-4 py-2 text-xs font-black uppercase tracking-widest bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all border border-white/10"
+              className="mt-6 px-4 py-2 text-xs font-black uppercase tracking-widest bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all border border-white/10 cursor-pointer"
             >
               Retry Pipeline Connection
             </button>
@@ -226,6 +231,9 @@ const AuditLogs = () => {
                 <tr className="border-b border-white/5 bg-white/[0.01]">
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-500">
                     Timeline
+                  </th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                    Actor / User
                   </th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-gray-500">
                     Operation Action
@@ -250,6 +258,14 @@ const AuditLogs = () => {
                       {log.created_at
                         ? new Date(log.created_at).toLocaleString()
                         : "N/A"}
+                    </td>
+
+                    {/* Actor Identity */}
+                    <td className="px-6 py-4 whitespace-nowrap text-cyan-400 font-bold text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <User size={12} className="text-gray-500" />
+                        {log.actor_name || "System Level"}
+                      </div>
                     </td>
 
                     {/* Action Tag Type */}
