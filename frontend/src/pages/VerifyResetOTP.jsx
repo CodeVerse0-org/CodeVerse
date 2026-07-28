@@ -5,6 +5,7 @@ import { ShieldCheck, Lock, ArrowLeft, Loader2, CheckCircle2, Circle } from "luc
 const VerifyResetOTP = () => {
   const { state } = useLocation();
   const navigate = useNavigate();
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
   const [otp, setOtp] = useState(new Array(6).fill(""));
   const [password, setPassword] = useState("");
@@ -47,7 +48,7 @@ const VerifyResetOTP = () => {
     setError("");
 
     try {
-      const res = await fetch("http://localhost:8000/auth/reset-password/confirm", {
+      const res = await fetch(`${API_URL}/auth/reset-password/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: state?.email, otp: otp.join(""), password }),
@@ -165,7 +166,7 @@ const VerifyResetOTP = () => {
 // Helper Component for Requirements
 const Requirement = ({ label, met }) => (
   <div className={`flex items-center gap-2 ${met ? "text-cyan-500" : "text-gray-700"} transition-colors duration-300`}>
-    {met ? <CheckCircle2 size={12} /> : <Circle size={12} />}s
+    {met ? <CheckCircle2 size={12} /> : <Circle size={12} />}
     <span className="text-[9px] font-black uppercase tracking-wider">{label}</span>
   </div>
 );
