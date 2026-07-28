@@ -1,19 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from typing import List, Dict, Any
+from db.connection import get_db
 
-from db.connection import get_db  # Ensure get_db yields a SessionLocal()
-from db.models import AuditLog, User, UserRepository
-from routers.auth import get_current_user
+# Import your existing user dependency instead of manual jwt decoding
+from routers.auth import get_current_user  # Adjust import path if auth is located elsewhere (e.g., utils.auth)
 
 router = APIRouter()
 
 @router.get("/api/audit-logs")
-def get_all_audit_logs(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+def get_all_audit_logs(current_user: dict = Depends(get_current_user)):
     """
     Fetches audit logs visible ONLY to the logged-in admin:
     1. Actions performed directly by or for this admin.
@@ -23,56 +18,72 @@ def get_all_audit_logs(
     if not admin_id:
         raise HTTPException(status_code=401, detail="User identification missing from token.")
 
+    conn = get_db()
     try:
-        # Subquery to find developer IDs managed by this admin
-        dev_ids_subquery = (
-            db.query(UserRepository.user_id)
-            .filter(UserRepository.admin_id == admin_id)
-            .scalar_subquery()
-        )
-
-        # Query AuditLogs with User details
-        results = (
-            db.query(AuditLog, User)
-            .outerjoin(User, AuditLog.actor_id == User.id)
-            .filter(
-                or_(
-                    AuditLog.admin_id == admin_id,
-                    AuditLog.actor_id == admin_id,
-                    AuditLog.actor_id.in_(dev_ids_subquery)
-                )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT
+                    a.id, 
+                    a.admin_id, 
+                    a.actor_id, 
+                    a.target_user_id, 
+                    a.action, 
+                    a.repository_id, 
+                    a.repository_name, 
+                    a.details, 
+                    a.created_at,
+                    u.first_name,
+                    u.last_name,
+                    u.role
+                FROM audit_logs a
+                LEFT JOIN users u ON a.actor_id = u.id
+                WHERE 
+                    a.admin_id = %s 
+                    OR a.actor_id = %s
+                    OR a.actor_id IN (
+                        SELECT ur.user_id 
+                        FROM user_repositories ur 
+                        WHERE ur.admin_id = %s
+                    )
+                ORDER BY a.created_at DESC
+                """,
+                (admin_id, admin_id, admin_id)
             )
-            .order_by(AuditLog.created_at.desc())
-            .distinct()
-            .all()
-        )
+            rows = cur.fetchall()
+            
+            logs = []
+            for row in rows:
+                first_name = row[9]
+                last_name = row[10]
+                role = row[11]
+                
+                if first_name and last_name:
+                    role_str = f" ({role.capitalize()})" if role else ""
+                    actor_name = f"{first_name} {last_name}{role_str}"
+                elif first_name:
+                    role_str = f" ({role.capitalize()})" if role else ""
+                    actor_name = f"{first_name}{role_str}"
+                else:
+                    actor_name = "System Level"
 
-        logs = []
-        for log, actor in results:
-            if actor and actor.first_name and actor.last_name:
-                role_str = f" ({actor.role.capitalize()})" if actor.role else ""
-                actor_name = f"{actor.first_name} {actor.last_name}{role_str}"
-            elif actor and actor.first_name:
-                role_str = f" ({actor.role.capitalize()})" if actor.role else ""
-                actor_name = f"{actor.first_name}{role_str}"
-            else:
-                actor_name = "System Level"
-
-            logs.append({
-                "id": log.id,
-                "admin_id": log.admin_id,
-                "actor_id": log.actor_id,
-                "target_user_id": log.target_user_id,
-                "action": log.action,
-                "repository_id": log.repository_id,
-                "repository_name": log.repository_name,
-                "details": log.details,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
-                "actor_name": actor_name
-            })
-
-        return logs
+                logs.append({
+                    "id": row[0],
+                    "admin_id": row[1],
+                    "actor_id": row[2],
+                    "target_user_id": row[3],
+                    "action": row[4],
+                    "repository_id": row[5],
+                    "repository_name": row[6],
+                    "details": row[7],
+                    "created_at": row[8].isoformat() if row[8] else None,
+                    "actor_name": actor_name
+                })
+                
+            return logs
 
     except Exception as e:
         print("❌ API Error fetching audit logs:", e)
-        raise HTTPException(status_code=500, detail="Failed to retrieve audit logs.")
+        raise HTTPException(status_code=500, detail="Failed to retrieve runtime trace metrics.")
+    finally:
+        conn.close()
