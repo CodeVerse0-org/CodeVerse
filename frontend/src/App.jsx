@@ -1,11 +1,15 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
+
 import Login from "./pages/Login";
+
 import AdminSignUp from "./pages/AdminSignup";
+
 import DeveloperSignUp from "./pages/DeveloperSignup";
+
 import ResetPassword from "./pages/ResetPassword";
-import VerifyResetOTP from "./pages/VerifyResetOTP"; // From Code 1
+import VerifyResetOTP from "./pages/VerifyResetOTP";
 import VerifyEmail from "./pages/VerifyEmail";
 import MFA from "./pages/MFA";
 import MFASetup from "./pages/MFASetup";
@@ -17,7 +21,7 @@ import DeveloperDashboard from "./pages/DeveloperDashboard";
 import UserManagement from "./pages/UserManagement";
 import InviteUsers from "./pages/InviteUsers";
 import AcceptInvite from "./pages/AcceptInvite";
-import AuditLogs from "./pages/AuditLogs"; // Added for Security & Audit Streams
+import AuditLogs from "./pages/AuditLogs";
 
 // GitHub & Repos
 import GitHubConnect from "./pages/GitHubConnect";
@@ -25,17 +29,18 @@ import GitHubConnectCallback from "./pages/GitHubConnectCallback";
 import Repositories from "./pages/Repositories";
 import GraphVisualizerPage from "./pages/GraphVisualizerPage";
 
-// Visualization (From Code 2)
+// Visualization
 import RepoSelectionPage from "./pages/RepoSelectionPage";
 import VisualizationPage from "./pages/VisualizationPage";
 import FunctionVisualizationPage from "./pages/FunctionVisualizationPage";
 import HistoryPage from "./pages/HistoryPage";
+import ApiVisualizationPage from "./pages/ApiVisualization";
 import FileSummary from "./pages/FileSummary";
 import ChatPage from "./pages/ChatPage";
 import ChatbotRepoSelectionPage from "./pages/ChatbotRepoSelectionPage";
 import StateVisualization from "./pages/StateVisualization";
 
-// Settings (From Code 1)
+// Settings & Profiles
 import Settings from "./pages/Settings";
 import DeveloperSettings from "./pages/DeveloperSettings";
 import ProfilePage from "./pages/ProfilePage";
@@ -90,6 +95,7 @@ const App = () => {
           element={<FunctionVisualizationPage />}
         />
         <Route path="/state-visualization" element={<StateVisualization />} />
+        <Route path="/api-visualization" element={<ApiVisualizationPage />} />
         <Route path="/history" element={<HistoryPage />} />
 
         <Route
@@ -101,10 +107,6 @@ const App = () => {
           element={<VisualizationPage />}
         />
         <Route path="/summaries" element={<FileSummary />} />
-        <Route
-          path="/graph-visualizer/:owner/:repo"
-          element={<GraphVisualizerPage />}
-        />
         <Route path="/chatbot" element={<ChatPage />} />
         <Route
           path="/chatbot-selection"

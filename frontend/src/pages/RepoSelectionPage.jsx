@@ -95,7 +95,7 @@ const RepoSelectionPage = () => {
 
     // Clear old session to prevent mixing
     sessionStorage.clear();
-
+    
     try {
       setGeneratingGraphs(true);
 
@@ -122,6 +122,10 @@ const RepoSelectionPage = () => {
         sessionStorage.setItem(
           "state_graph",
           JSON.stringify(data.state_graph || { nodes: [], links: [] }),
+        );
+        sessionStorage.setItem(
+          "api_graph",
+          JSON.stringify(data.api_graph || data.api_graphs || { nodes: [], links: [] }),
         );
 
         console.log("Analysis Complete. Ready for Visualization.");

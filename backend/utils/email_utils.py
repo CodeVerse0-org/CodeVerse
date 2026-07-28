@@ -45,7 +45,7 @@ def send_email(subject: str, to_email: str, body: str):
         )
 
         print("STEP 2: Refreshing access token...")
-
+        print(EMAIL_FROM)
         creds.refresh(Request())
 
         print("STEP 3: Building Gmail service...")

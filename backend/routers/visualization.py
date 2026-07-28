@@ -2,6 +2,7 @@ import httpx
 import base64
 import os
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import Optional, Any
@@ -16,6 +17,10 @@ from utils.function_graph_builder import build_function_graph
 from utils.state_dependency_parser import extract_state_dependencies
 from utils.state_graph_builder import build_state_graph
 from db.queries import get_all_user_summaries
+from utils.dependency_parser import extract_api_calls
+from utils.dependency_parser import extract_api_routes
+from utils.graph_builder import build_api_graph
+
 
 # ✅ Added imports for audit logging
 from sqlalchemy.orm import Session
@@ -429,7 +434,7 @@ async def generate_function_graph(
 
         items = resp.json().get("tree", [])
         file_paths = [i["path"] for i in items if any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)
-                      and not any(d in i["path"].split("/") for d in IGNORE_DIRS)]
+                    and not any(d in i["path"].split("/") for d in IGNORE_DIRS)]
 
         for path in file_paths:
             content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
@@ -453,6 +458,225 @@ async def generate_function_graph(
         )
         
         return graph
+def extract_api_calls(code: str, file_path: str):
+    """
+    Extracts HTTP requests with methods (GET, POST, etc.) and target URLs.
+    Supports axios, fetch, requests, and httpx.
+    """
+    calls = []
+    # Pattern to capture method and endpoint: axios.get('/api/users') or fetch('/api/users', { method: 'POST' })
+    # Matching common explicit method invocations:
+    explicit_pattern = re.compile(
+        r'(?:axios|requests|httpx)\.(get|post|put|delete|patch)\(\s*["\']([^"\'\s]+)["\']', 
+        re.IGNORECASE
+    )
+    for match in explicit_pattern.finditer(code):
+        method = match.group(1).upper()
+        endpoint = match.group(2)
+        calls.append({
+            "source": file_path,
+            "target": endpoint,
+            "method": method,
+            "snippet": match.group(0)
+        })
+
+    # Generic fetch/axios call pattern (defaults to GET unless specified nearby)
+    generic_pattern = re.compile(
+        r'(?:fetch|axios)\(\s*["\']([^"\'\s]+)["\']', 
+        re.IGNORECASE
+    )
+    for match in generic_pattern.finditer(code):
+        endpoint = match.group(1)
+        # Avoid duplicate captures if caught by explicit pattern
+        if not any(c["source"] == file_path and c["target"] == endpoint for c in calls):
+            calls.append({
+                "source": file_path,
+                "target": endpoint,
+                "method": "GET",
+                "snippet": match.group(0)
+            })
+
+    return calls
+
+
+def extract_api_routes(code: str, file_path: str):
+    """
+    Extracts backend API route definitions (FastAPI/Express/Flask).
+    """
+    routes = []
+    # Match FastAPI / Express route decorators/methods: @app.get("/api/...") or router.post("/api/...")
+    route_pattern = re.compile(
+        r'@(?:app|router)\.(get|post|put|delete|patch)\(\s*["\']([^"\'\s]+)["\']', 
+        re.IGNORECASE
+    )
+    for match in route_pattern.finditer(code):
+        method = match.group(1).upper()
+        path = match.group(2)
+        routes.append({
+            "id": f"{method} {path}",
+            "path": path,
+            "method": method,
+            "file": file_path
+        })
+    return routes
+
+
+def normalize_endpoint(path: str) -> str:
+    """Normalizes paths by stripping trailing slashes for clean matching."""
+    if not path:
+        return ""
+    cleaned = path.split("?")[0].rstrip("/")
+    return cleaned if cleaned else "/"
+
+
+def build_api_graph(all_api_calls, all_api_routes):
+    """
+    Creates a 3-step chained dependency graph:
+    [Frontend File] --(CALLS_API)--> [API Endpoint Node] --(HANDLED_BY)--> [Backend File]
+    """
+    nodes_dict = {}
+    edges = []
+
+    # Map normalized routes to their backend file definitions
+    route_map = {}
+    for route in all_api_routes:
+        norm_path = normalize_endpoint(route["path"])
+        key = f"{route['method']} {norm_path}"
+        route_map[key] = route
+        
+        # 1. Register API Endpoint Node
+        endpoint_node_id = f"ENDPOINT: {route['method']} {norm_path}"
+        if endpoint_node_id not in nodes_dict:
+            nodes_dict[endpoint_node_id] = {
+                "id": endpoint_node_id,
+                "type": "endpoint",
+                "data": {
+                    "label": f"{route['method']} {norm_path}",
+                    "category": "api_endpoint",
+                    "summary": f"API Route handled in {route['file']}",
+                    "content": f"// Route: {route['method']} {norm_path}\n// File: {route['file']}"
+                }
+            }
+
+        # 2. Register Backend Handler File Node
+        backend_file_id = route["file"]
+        if backend_file_id not in nodes_dict:
+            nodes_dict[backend_file_id] = {
+                "id": backend_file_id,
+                "type": "file",
+                "data": {
+                    "label": backend_file_id.split("/")[-1],
+                    "category": "backend",
+                    "summary": f"Backend controller defining API route handler",
+                    "content": f"// File: {backend_file_id}"
+                }
+            }
+
+        # 3. Create Edge: API Endpoint -> Backend Handler File
+        edges.append({
+            "source": endpoint_node_id,
+            "target": backend_file_id,
+            "label": "HANDLED_BY"
+        })
+
+    # Process client API calls from frontend files
+    for call in all_api_calls:
+        frontend_file_id = call["source"]
+        call_method = call["method"]
+        norm_target = normalize_endpoint(call["target"])
+
+        # Register Frontend Calling File Node
+        if frontend_file_id not in nodes_dict:
+            nodes_dict[frontend_file_id] = {
+                "id": frontend_file_id,
+                "type": "file",
+                "data": {
+                    "label": frontend_file_id.split("/")[-1],
+                    "category": "frontend",
+                    "summary": f"Frontend component/service initiating API call",
+                    "content": call.get("snippet", "// API Call Snippet")
+                }
+            }
+
+        # Match call target against known backend routes
+        matched_route_key = f"{call_method} {norm_target}"
+        
+        if matched_route_key in route_map:
+            endpoint_node_id = f"ENDPOINT: {matched_route_key}"
+        else:
+            # Create an unmapped endpoint node if the route isn't explicitly defined in backend files
+            endpoint_node_id = f"ENDPOINT: {call_method} {norm_target}"
+            if endpoint_node_id not in nodes_dict:
+                nodes_dict[endpoint_node_id] = {
+                    "id": endpoint_node_id,
+                    "type": "endpoint",
+                    "data": {
+                        "label": f"{call_method} {norm_target}",
+                        "category": "api_endpoint",
+                        "summary": "External/Unmapped API Endpoint",
+                        "content": f"// Targeted Endpoint\n{call_method} {norm_target}"
+                    }
+                }
+
+        # Create Edge: Frontend File -> API Endpoint
+        edges.append({
+            "source": frontend_file_id,
+            "target": endpoint_node_id,
+            "label": "CALLS_API"
+        })
+
+    return {
+        "nodes": list(nodes_dict.values()),
+        "edges": edges,
+        "dependencies": edges
+    }
+
+# ---------------- API GRAPH DEDICATED GENERATION ----------------
+@router.post("/generate-api-graph")
+async def generate_api_graph(
+    request: Request,
+    full_repo: str = Query(...),
+    installation_id: int | None = Query(None),
+    user_data: dict = Depends(get_current_user)
+):
+    token = get_installation_access_token(installation_id) if installation_id else os.getenv("GITHUB_TOKEN")
+    user_id = user_data.get("id")
+    headers = {"Accept": "application/vnd.github+json"}
+    if token: headers["Authorization"] = f"token {token}"
+
+    all_api_calls = []
+    all_api_routes = []
+
+    async with httpx.AsyncClient(timeout=150.0) as client:
+        tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
+        resp = await client.get(tree_url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"GitHub Error: {resp.text}")
+
+        items = resp.json().get("tree", [])
+        file_paths = [
+            i["path"] for i in items 
+            if not any(d in i["path"].split("/") for d in IGNORE_DIRS) 
+            and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)
+        ]
+
+        for path in file_paths:
+            content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
+            c_resp = await client.get(content_url, headers=headers)
+            if c_resp.status_code == 200:
+                raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8", errors="ignore")
+                all_api_calls.extend(extract_api_calls(raw_code, path))
+                all_api_routes.extend(extract_api_routes(raw_code, path))
+
+        api_graph = build_api_graph(all_api_calls, all_api_routes)
+
+        log_graph_generation(
+            user_id=user_id,
+            repo_name=full_repo,
+            graph_type="API Dependency"
+        )
+
+        return api_graph
 
 # ---------------- GENERATE ALL GRAPHS ----------------
 @router.post("/generate-all-graphs")
@@ -462,285 +686,105 @@ async def generate_graphs(
     installation_id: int | None = Query(None),
     user_data: dict | None = Depends(get_optional_user)
 ):
-    # -------------------------------
-    # SAFE HEADERS
-    # -------------------------------
-    headers = {
-        "Accept": "application/vnd.github+json"
-    }
+    headers = {"Accept": "application/vnd.github+json"}
+    token = get_installation_access_token(installation_id) if installation_id else os.getenv("GITHUB_TOKEN")
 
-    token = (
-        get_installation_access_token(installation_id)
-        if installation_id
-        else os.getenv("GITHUB_TOKEN")
-    )
-
-    print(f"--- DEBUG: generate-all-graphs ---")
-
-    if token:
-        print(f"GitHub Token Loaded: {token[:10]}...")
-    else:
-        print("No GitHub Token Found")
-
-    # -------------------------------
-    # CLEAN TOKEN
-    # -------------------------------
     if token and token.strip() not in ["", "null", "undefined", "None"]:
-        clean_github_token = token.strip()
-
-        clean_github_token = clean_github_token.replace("Bearer ", "")
-        clean_github_token = clean_github_token.replace("token ", "")
-
+        clean_github_token = token.strip().replace("Bearer ", "").replace("token ", "")
         headers["Authorization"] = f"Bearer {clean_github_token}"
 
-    # -------------------------------
-    # USER ID
-    # -------------------------------
-    user_id = "public_user"
+    user_id = user_data.get("id") or user_data.get("user_id") if user_data else "public_user"
 
-    if user_data:
-        user_id = (
-            user_data.get("id")
-            or user_data.get("user_id")
-            or "public_user"
-        )
-
-    # -------------------------------
-    # FETCH REPO
-    # -------------------------------
     async with httpx.AsyncClient(timeout=180.0) as client:
-
-        tree_url = (
-            f"https://api.github.com/repos/"
-            f"{full_repo}/git/trees/HEAD?recursive=1"
-        )
-
-        # -------------------------------
-        # FIRST TRY (WITH TOKEN)
-        # -------------------------------
+        tree_url = f"https://api.github.com/repos/{full_repo}/git/trees/HEAD?recursive=1"
         resp = await client.get(tree_url, headers=headers)
 
-        # -------------------------------
-        # FALLBACK FOR PUBLIC REPOS
-        # -------------------------------
         if resp.status_code == 401:
-            print("⚠️ Invalid GitHub token. Retrying without token...")
+            resp = await client.get(tree_url, headers={"Accept": "application/vnd.github+json"})
 
-            public_headers = {
-                "Accept": "application/vnd.github+json"
-            }
-
-            resp = await client.get(
-                tree_url,
-                headers=public_headers
-            )
-
-        # -------------------------------
-        # FINAL FAILURE
-        # -------------------------------
         if resp.status_code != 200:
-            print(f"❌ GitHub API Error: {resp.status_code}")
-            print(resp.text)
+            raise HTTPException(status_code=resp.status_code, detail=f"GitHub Error ({resp.status_code}): {resp.text}")
 
-            raise HTTPException(
-                status_code=resp.status_code,
-                detail=f"GitHub Error ({resp.status_code}): {resp.text}"
-            )
-
-        # -------------------------------
-        # FILE FILTERING
-        # -------------------------------
         items = resp.json().get("tree", [])
-
         file_paths = [
-            i["path"]
-            for i in items
-            if not any(
-                d in i["path"].split("/")
-                for d in IGNORE_DIRS
-            )
-            and any(
-                i["path"].endswith(ext)
-                for ext in SUPPORTED_EXTENSIONS
-            )
+            i["path"] for i in items
+            if not any(d in i["path"].split("/") for d in IGNORE_DIRS)
+            and any(i["path"].endswith(ext) for ext in SUPPORTED_EXTENSIONS)
         ]
 
-        # -------------------------------
-        # STORAGE
-        # -------------------------------
-        file_nodes = []
-        file_edges = []
-
-        all_functions_data = []
-        all_calls_data = []
-
+        file_nodes, file_edges = [], []
+        all_functions_data, all_calls_data = [], []
         state_files_data = []
+        all_api_calls, all_api_routes = [], []
 
-        # -------------------------------
-        # PROCESS FILES
-        # -------------------------------
         for path in file_paths:
+            content_url = f"https://api.github.com/repos/{full_repo}/contents/{path}"
+            c_resp = await client.get(content_url, headers=headers)
 
-            content_url = (
-                f"https://api.github.com/repos/"
-                f"{full_repo}/contents/{path}"
-            )
-
-            c_resp = await client.get(
-                content_url,
-                headers=headers
-            )
-
-            # -------------------------------
-            # RETRY CONTENT FETCH WITHOUT TOKEN
-            # -------------------------------
             if c_resp.status_code == 401:
-
-                c_resp = await client.get(
-                    content_url,
-                    headers={
-                        "Accept": "application/vnd.github+json"
-                    }
-                )
+                c_resp = await client.get(content_url, headers={"Accept": "application/vnd.github+json"})
 
             if c_resp.status_code != 200:
-                print(f"⚠️ Failed to fetch file: {path}")
                 continue
 
             try:
-                raw_code = base64.b64decode(
-                    c_resp.json()["content"]
-                ).decode(
-                    "utf-8",
-                    errors="ignore"
-                )
+                raw_code = base64.b64decode(c_resp.json()["content"]).decode("utf-8", errors="ignore")
 
-                # -------------------------------
-                # FILE GRAPH
-                # -------------------------------
+                # 1. FILE GRAPH
                 file_nodes.append({
                     "id": path,
-                    "data": {
-                        "label": path.split("/")[-1],
-                        "content": raw_code
-                    }
+                    "data": {"label": path.split("/")[-1], "content": raw_code}
                 })
-
                 for dep in extract_dependencies(raw_code):
-                    resolved = resolve_github_path(
-                        path,
-                        dep,
-                        file_paths
-                    )
-
+                    resolved = resolve_github_path(path, dep, file_paths)
                     if resolved:
-                        file_edges.append({
-                            "source": path,
-                            "target_full": resolved
-                        })
+                        file_edges.append({"source": path, "target_full": resolved})
 
-                # -------------------------------
-                # FUNCTION GRAPH
-                # -------------------------------
-                functions, calls = extract_function_dependencies(
-                    raw_code,
-                    path
-                )
-
+                # 2. FUNCTION GRAPH
+                functions, calls = extract_function_dependencies(raw_code, path)
                 all_functions_data.extend(functions)
                 all_calls_data.extend(calls)
 
-                # -------------------------------
-                # STATE GRAPH snippet construction
-                # -------------------------------
-                state_deps = extract_state_dependencies(
-                    raw_code,
-                    path
-                )
-
+                # 3. STATE GRAPH
+                state_deps = extract_state_dependencies(raw_code, path)
                 if state_deps:
-                    # ✅ Extract only relevant lines instead of raw_code
-                    relevant_snippets = []
-                    for dep in state_deps:
-                        if "snippet" in dep:
-                            relevant_snippets.append(dep["snippet"])
-                        elif "name" in dep:
-                            relevant_snippets.append(f"// Related: {dep['name']}")
-                    
-                    snippet_content = "\n".join(relevant_snippets) if relevant_snippets else "// Dependencies identified but no snippet available"
-
+                    relevant_snippets = [dep["snippet"] for dep in state_deps if "snippet" in dep]
+                    snippet_content = "\n".join(relevant_snippets) if relevant_snippets else "// State dependencies found"
                     state_files_data.append({
                         "path": path,
                         "state_dependencies": state_deps,
-                        "content": snippet_content # ✅ Changed from raw_code
+                        "content": snippet_content
                     })
 
+                # 4. API GRAPH
+                all_api_calls.extend(extract_api_calls(raw_code, path))
+                all_api_routes.extend(extract_api_routes(raw_code, path))
+
             except Exception as e:
-                print(f"❌ File parse error: {path}")
-                print(str(e))
+                print(f"❌ Error processing file {path}: {str(e)}")
                 continue
 
-        # -------------------------------
-        # BUILD ALL GRAPHS
-        # -------------------------------
-        file_graph = {
-            "nodes": file_nodes,
-            "dependencies": file_edges
-        }
+        # BUILD ALL 4 GRAPHS
+        file_graph = {"nodes": file_nodes, "dependencies": file_edges}
+        function_graph = build_function_graph(all_functions_data, all_calls_data)
+        state_graph = build_state_graph(state_files_data)
+        api_graph = build_api_graph(all_api_calls, all_api_routes)
 
-        function_graph = build_function_graph(
-            all_functions_data,
-            all_calls_data
-        )
-
-        state_graph = build_state_graph(
-            state_files_data
-        )
-
-        # -------------------------------
-        # NEO4J SYNC
-        # -------------------------------
+        # SYNC TO NEO4J & LOG
         try:
-            sync_to_neo4j(
-                request.app.state.neo4j_driver,
-                full_repo,
-                file_nodes,
-                file_edges,
-                user_id
-            )
-
-            sync_functions_to_neo4j(
-                request.app.state.neo4j_driver,
-                full_repo,
-                function_graph,
-                user_id
-            )
-
-            sync_state_graph_to_neo4j(
-                request.app.state.neo4j_driver,
-                full_repo,
-                state_graph,
-                user_id
-            )
-
+            sync_to_neo4j(request.app.state.neo4j_driver, full_repo, file_nodes, file_edges, user_id)
+            sync_functions_to_neo4j(request.app.state.neo4j_driver, full_repo, function_graph, user_id)
+            sync_state_graph_to_neo4j(request.app.state.neo4j_driver, full_repo, state_graph, user_id)
         except Exception as e:
-            print("❌ Neo4j Sync Error:")
-            print(str(e))
+            print(f"❌ Neo4j Sync Error: {str(e)}")
 
-        # ✅ Added single audit entry step for comprehensive generations
-        log_graph_generation(
-            user_id=user_id,
-            repo_name=full_repo,
-            graph_type="All Graphs"
-        )
+        log_graph_generation(user_id=user_id, repo_name=full_repo, graph_type="All Graphs")
 
-        # -------------------------------
-        # SUCCESS RESPONSE
-        # -------------------------------
         return {
             "file_graph": file_graph,
             "function_graph": function_graph,
-            "state_graph": state_graph
+            "state_graph": state_graph,
+            "api_graph": api_graph
         }
 
 
